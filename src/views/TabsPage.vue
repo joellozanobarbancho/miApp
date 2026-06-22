@@ -1,7 +1,7 @@
 <template>
   <ion-page>
     <ion-tabs>
-      <ion-router-outlet></ion-router-outlet>
+      <ion-router-outlet :key="route.path"></ion-router-outlet>
       <ion-tab-bar slot="bottom">
         
         <ion-tab-button tab="gallery" href="/tabs/gallery">
@@ -20,6 +20,7 @@
 </template>
 
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
 import { 
   IonTabBar, 
   IonTabButton, 
@@ -29,4 +30,6 @@ import {
   IonPage, 
   IonRouterOutlet 
 } from '@ionic/vue';
+
+const route = useRoute()
 </script>

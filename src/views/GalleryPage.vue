@@ -24,12 +24,6 @@
         </ion-row>
       </ion-grid>
 
-      <ion-fab vertical="bottom" horizontal="end" slot="fixed">
-        <ion-fab-button @click="takePhoto">
-          <ion-icon :icon="cameraOutline"></ion-icon>
-        </ion-fab-button>
-      </ion-fab>
-
       <ion-modal :is-open="selectedPhoto !== null" @didDismiss="closePhoto">
         <ion-content class="ion-padding">
 
@@ -54,6 +48,12 @@
         </ion-content>
       </ion-modal>
 
+      <ion-fab vertical="bottom" horizontal="end" slot="fixed">
+        <ion-fab-button @click="takePhoto">
+          <ion-icon :icon="cameraOutline"></ion-icon>
+        </ion-fab-button>
+      </ion-fab>
+
     </ion-content>
   </ion-page>
 </template>
@@ -72,7 +72,9 @@ import {
 import { cameraOutline, closeOutline, trashOutline } from 'ionicons/icons'
 
 const gallery = useGalleryStore()
-const selectedPhoto = ref<any>(null)
+type Photo = (typeof gallery.photos)[number]
+
+const selectedPhoto = ref<Photo | null>(null)
 
 onMounted(() => {
   gallery.loadPhotos()
@@ -95,7 +97,7 @@ async function takePhoto() {
   }
 }
 
-function openPhoto(photo) {
+function openPhoto(photo: Photo) {
   selectedPhoto.value = photo
 }
 

@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { Preferences } from '@capacitor/preferences'
-import { Filesystem, Directory } from '@capacitor/filesystem'
 
 export const useGalleryStore = defineStore('gallery', {
   state: () => ({
@@ -25,17 +24,9 @@ export const useGalleryStore = defineStore('gallery', {
     },
 
     async addPhoto(base64Data: string) {
-      const fileName = `${Date.now()}.jpeg`
-
-      const saved = await Filesystem.writeFile({
-        path: fileName,
-        data: base64Data,
-        directory: Directory.Data
-      })
-
       const newPhoto = {
         id: crypto.randomUUID(),
-        path: saved.uri,
+        path: `data:image/jpeg;base64,${base64Data}`,
         date: new Date().toISOString()
       }
 

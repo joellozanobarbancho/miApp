@@ -1,2 +1,35 @@
 /* For information on how to create your own theme, please refer to:
 http://ionicframework.com/docs/theming/ */
+
+:root {
+	--ion-background-color: #ffffff;
+	--ion-text-color: #000000;
+}
+
+ion-app,
+ion-page,
+ion-tabs,
+ion-router-outlet,
+ion-content {
+	background-color: var(--ion-background-color);
+}
+
+ion-app,
+ion-page,
+ion-tabs,
+ion-router-outlet {
+	background-color: var(--ion-background-color);
+}
+
+ion-content {
+	--background: var(--ion-background-color);
+}
+
+ion-content::part(background) {
+	background-color: var(--ion-background-color);
+}
+
+html,
+body {
+	background-color: var(--ion-background-color);
+}
