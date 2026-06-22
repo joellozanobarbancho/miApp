@@ -1,0 +1,43 @@
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Build output ---
+dist/
+build/
+www/
+
+# --- Capacitor ---
+android/
+ios/
+capacitor.config.json.backup
+
+# --- Environment files ---
+.env
+.env.*
+!.env.example
+
+# --- Logs ---
+*.log
+logs/
+debug.log
+error.log
+
+# --- Editor ---
+.vscode/
+.idea/
+
+# --- OS files ---
+.DS_Store
+Thumbs.db
+
+# --- Tests ---
+coverage/
+cypress/videos/
+cypress/screenshots/
+
+# --- TypeScript ---
+*.tsbuildinfo
