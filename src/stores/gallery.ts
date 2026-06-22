@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { Preferences } from '@capacitor/preferences'
 import { Filesystem, Directory } from '@capacitor/filesystem'
 
 export const useGalleryStore = defineStore('gallery', {
@@ -7,11 +8,22 @@ export const useGalleryStore = defineStore('gallery', {
       id: string
       path: string
       date: string
-      location?: { lat: number; lng: number }
     }>
   }),
 
   actions: {
+    async loadPhotos() {
+      const { value } = await Preferences.get({ key: 'photos' })
+      this.photos = value ? JSON.parse(value) : []
+    },
+
+    async savePhotos() {
+      await Preferences.set({
+        key: 'photos',
+        value: JSON.stringify(this.photos)
+      })
+    },
+
     async addPhoto(base64Data: string) {
       const fileName = `${Date.now()}.jpeg`
 
@@ -21,20 +33,19 @@ export const useGalleryStore = defineStore('gallery', {
         directory: Directory.Data
       })
 
-      this.photos.push({
+      const newPhoto = {
         id: crypto.randomUUID(),
         path: saved.uri,
         date: new Date().toISOString()
-      })
+      }
+
+      this.photos.unshift(newPhoto)
+      await this.savePhotos()
     },
 
-    async loadPhotos() {
-    
-    } ,
-
-    deletePhoto(id) {
+    async deletePhoto(id: string) {
       this.photos = this.photos.filter(p => p.id !== id)
+      await this.savePhotos()
     }
-
   }
 })

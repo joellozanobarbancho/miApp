@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Camera, CameraResultType } from '@capacitor/camera'
 import { useGalleryStore } from '@/stores/gallery'
 import { 
@@ -69,11 +69,14 @@ import {
   IonModal 
 } from '@ionic/vue'
 
-// ICONOS
 import { cameraOutline, closeOutline, trashOutline } from 'ionicons/icons'
 
 const gallery = useGalleryStore()
 const selectedPhoto = ref<any>(null)
+
+onMounted(() => {
+  gallery.loadPhotos()
+})
 
 async function takePhoto() {
   try {
@@ -108,7 +111,6 @@ function deleteSelectedPhoto() {
 </script>
 
 <style scoped>
-
 .thumb {
   width: 100%;
   height: 120px;
@@ -123,7 +125,7 @@ function deleteSelectedPhoto() {
 }
 
 ion-fab {
-  bottom: 70px;
+  bottom: calc(env(safe-area-inset-bottom) + 90px);
   right: 20px;
 }
 

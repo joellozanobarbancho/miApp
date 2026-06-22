@@ -1,8 +1,7 @@
-import { createRouter, createWebHistory } from '@ionic/vue-router';
-import { RouteRecordRaw } from 'vue-router';
-import TabsPage from '../views/TabsPage.vue';
+import { createRouter, createWebHistory } from '@ionic/vue-router'
+import TabsPage from '@/views/TabsPage.vue'
 
-const routes: Array<RouteRecordRaw> = [
+const routes = [
   {
     path: '/',
     redirect: '/tabs/gallery'
@@ -12,24 +11,22 @@ const routes: Array<RouteRecordRaw> = [
     component: TabsPage,
     children: [
       {
-        path: '',
-        redirect: '/tabs/gallery'
-      },
-      {
         path: 'gallery',
         component: () => import('@/views/GalleryPage.vue')
       },
       {
         path: 'report',
         component: () => import('@/views/ReportPage.vue')
+      },
+      {
+        path: '',
+        redirect: '/tabs/gallery'
       }
     ]
   }
-];
+]
 
-const router = createRouter({
+export default createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes
-});
-
-export default router;
+})
