@@ -6,109 +6,123 @@
       </ion-toolbar>
     </ion-header>
 
-    <ion-content>
+    <ion-content class="ion-padding">
+      <!-- Photo Counter -->
+      <ion-note class="ion-display-flex ion-justify-content-between ion-align-items-center">
+        <span><strong>{{ gallery.photoCount }}</strong> photos</span>
+        <span v-if="!gallery.canAddMorePhotos" color="warning">Max reached</span>
+      </ion-note>
 
-      <ion-grid>
-        <ion-row>
-          <ion-col
-            v-for="photo in gallery.photos"
-            :key="photo.id"
-            size="6"
-          >
-            <ion-img 
-              :src="photo.path" 
-              class="thumb"
-              @click="openPhoto(photo)"
-            />
-          </ion-col>
-        </ion-row>
-      </ion-grid>
+      <!-- Photo Selector Component -->
+      <photo-selector
+        :photo-count="gallery.photoCount"
+        :is-loading="isLoading"
+        @photos-taken="addPhotos"
+        @error="handleError"
+        class="ion-margin-bottom"
+      />
 
-      <ion-modal :is-open="selectedPhoto !== null" @didDismiss="closePhoto">
-        <ion-content class="ion-padding">
+      <!-- Photo Grid Component -->
+      <div v-if="gallery.photos.length > 0" class="ion-margin-top">
+        <photo-grid
+          :photos="gallery.photos"
+          @select="selectPhoto"
+          @delete="deletePhoto"
+        />
+      </div>
 
-          <ion-button fill="clear" @click="closePhoto">
-            <ion-icon :icon="closeOutline"></ion-icon>
-          </ion-button>
-
-          <ion-img 
-            :src="selectedPhoto?.path" 
-            class="full-photo"
-          />
-
-          <ion-button 
-            color="danger" 
-            expand="block" 
-            @click="deleteSelectedPhoto"
-          >
-            <ion-icon :icon="trashOutline" slot="start"></ion-icon>
-            Delete photo
-          </ion-button>
-
-        </ion-content>
-      </ion-modal>
-
-      <ion-fab vertical="bottom" horizontal="end" slot="fixed">
-        <ion-fab-button @click="takePhoto">
-          <ion-icon :icon="cameraOutline"></ion-icon>
-        </ion-fab-button>
-      </ion-fab>
-
+      <!-- Empty State -->
+      <ion-card v-else class="ion-text-center ion-padding">
+        <ion-card-header>
+          <ion-card-title>No photos yet</ion-card-title>
+        </ion-card-header>
+        <ion-card-content>
+          <p>Start by taking or selecting photos using the buttons above.</p>
+        </ion-card-content>
+      </ion-card>
     </ion-content>
   </ion-page>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Camera, CameraResultType } from '@capacitor/camera'
-import { useGalleryStore } from '@/stores/gallery'
+import { App } from '@capacitor/app'
 import { 
-  IonFab, 
-  IonFabButton, 
-  IonIcon, 
-  IonModal 
+  IonPage, 
+  IonHeader, 
+  IonToolbar, 
+  IonTitle, 
+  IonContent,
+  IonNote,
+  IonCard,
+  IonCardHeader,
+  IonCardTitle,
+  IonCardContent,
+  toastController
 } from '@ionic/vue'
-
-import { cameraOutline, closeOutline, trashOutline } from 'ionicons/icons'
+import PhotoGrid from '@/components/PhotoGrid.vue'
+import PhotoSelector from '@/components/PhotoSelector.vue'
+import { useGalleryStore } from '@/stores/galleryStore'
+import type { GalleryPhoto } from '@/stores/galleryStore'
 
 const gallery = useGalleryStore()
-type Photo = (typeof gallery.photos)[number]
+const isLoading = ref(false)
+const selectedPhoto = ref<GalleryPhoto | null>(null)
 
-const selectedPhoto = ref<Photo | null>(null)
+onMounted(async () => {
+  console.log('[GalleryPage] Mounted, loading photos')
+  await gallery.loadPhotos()
 
-onMounted(() => {
-  gallery.loadPhotos()
+  // Handle app restoration after camera activity
+  App.addListener('appStateChange', async (state) => {
+    console.log('[GalleryPage] App state changed:', state.isActive)
+    if (state.isActive) {
+      console.log('[GalleryPage] App restored to foreground, reloading photos')
+      await gallery.loadPhotos()
+    }
+  })
 })
 
-async function takePhoto() {
+async function addPhotos(photos: string[]) {
   try {
-    const image = await Camera.getPhoto({
-      quality: 80,
-      allowEditing: false,
-      resultType: CameraResultType.Base64
-    })
+    isLoading.value = true
 
-    if (image.base64String) {
-      await gallery.addPhoto(image.base64String)
+    if (photos.length === 1) {
+      await gallery.addPhoto(photos[0])
+    } else {
+      await gallery.addMultiplePhotos(photos)
     }
-
   } catch (err) {
-    console.error('Error al tomar la foto:', err)
+    console.error('[GalleryPage] Error adding photos:', err)
+    handleError(err instanceof Error ? err : new Error('Failed to add photos'))
+  } finally {
+    isLoading.value = false
   }
 }
 
-function openPhoto(photo: Photo) {
+function selectPhoto(photo: GalleryPhoto) {
   selectedPhoto.value = photo
 }
 
-function closePhoto() {
-  selectedPhoto.value = null
+async function deletePhoto(photoId: string) {
+  try {
+    await gallery.deletePhoto(photoId)
+    selectedPhoto.value = null
+  } catch (err) {
+    console.error('[GalleryPage] Error deleting photo:', err)
+    handleError(err instanceof Error ? err : new Error('Failed to delete photo'))
+  }
 }
 
-function deleteSelectedPhoto() {
-  if (!selectedPhoto.value) return
-  gallery.deletePhoto(selectedPhoto.value.id)
-  selectedPhoto.value = null
+async function handleError(error: Error) {
+  console.error('[GalleryPage] Error:', error.message)
+  const toast = await toastController.create({
+    message: error.message,
+    duration: 3000,
+    color: 'danger',
+    position: 'bottom'
+  })
+  await toast.present()
 }
 </script>
 
