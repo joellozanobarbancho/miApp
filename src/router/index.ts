@@ -15,8 +15,12 @@ const routes = [
         component: () => import('@/views/GalleryPage.vue')
       },
       {
-        path: 'report',
+        path: 'reports',
         component: () => import('@/views/ReportPage.vue')
+      },
+      {
+        path: 'report',
+        redirect: '/tabs/reports'
       },
       {
         path: '',

@@ -9,10 +9,10 @@
           <ion-label>Gallery</ion-label>
         </ion-tab-button>
 
-      <ion-tab-button tab="report" href="/tabs/report">
-        <ion-icon name="document-text" />
-        <ion-label>Reports</ion-label>
-      </ion-tab-button>
+        <ion-tab-button tab="reports" href="/tabs/reports">
+          <ion-icon name="document-text" />
+          <ion-label>Reports</ion-label>
+        </ion-tab-button>
 
       </ion-tab-bar>
     </ion-tabs>

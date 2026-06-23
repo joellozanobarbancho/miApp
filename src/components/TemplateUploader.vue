@@ -3,7 +3,7 @@
     <ion-item button @click="selectTemplate" class="ion-margin-bottom">
       <ion-icon :icon="documentAttachOutline" slot="start"></ion-icon>
       <ion-label>
-        <p v-if="!templateName" class="ion-margin">Upload PDF template</p>
+        <p v-if="!templateName" class="ion-margin">Upload Excel template</p>
         <p v-else>{{ templateName }}</p>
       </ion-label>
       <ion-icon 
@@ -34,7 +34,7 @@
     <input
       ref="fileInput"
       type="file"
-      accept=".docx,.doc,.xlsx,.xls"
+      accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
       style="display: none"
       @change="handleFileSelect"
     />
@@ -93,14 +93,12 @@ async function handleFileSelect(event: Event) {
 
     // Validate file type
     const validTypes = [
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/msword',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.ms-excel'
     ]
 
     if (!validTypes.includes(file.type)) {
-      throw new Error('Invalid file type. Please upload a Word or Excel document.')
+      throw new Error('Invalid file type. Please upload an Excel document.')
     }
 
     // Validate file size (max 10MB)
