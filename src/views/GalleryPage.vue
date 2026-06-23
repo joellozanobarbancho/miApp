@@ -10,12 +10,10 @@
       <!-- Photo Counter -->
       <ion-note class="ion-display-flex ion-justify-content-between ion-align-items-center">
         <span><strong>{{ gallery.photoCount }}</strong> photos</span>
-        <span v-if="!gallery.canAddMorePhotos" color="warning">Max reached</span>
       </ion-note>
 
       <!-- Photo Selector Component -->
       <photo-selector
-        :photo-count="gallery.photoCount"
         :is-loading="isLoading"
         @photos-taken="addPhotos"
         @error="handleError"

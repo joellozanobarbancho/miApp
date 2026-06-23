@@ -100,8 +100,7 @@ export function useCamera() {
     try {
       console.log('[useCamera] Starting multiple photo picker')
       const images = await Camera.pickImages({
-        quality: 80,
-        limit: 18 // Maximum photos allowed
+        quality: 80
       })
 
       console.log('[useCamera] Picked', images.photos.length, 'photos')

@@ -30,7 +30,7 @@
         <ion-card-header>
           <ion-card-title>
             <ion-icon :icon="imagesOutline" slot="start"></ion-icon>
-            Select Photos ({{ selectedPhotosCount }}/18)
+            Select Photos ({{ selectedPhotosCount }}/{{ maxSelectedPhotos }})
           </ion-card-title>
         </ion-card-header>
         <ion-card-content>
@@ -47,6 +47,7 @@
               <ion-checkbox
                 :model-value="selectedPhotos.includes(photo.id)"
                 @update:model-value="togglePhotoSelection(photo.id)"
+                :disabled="!selectedPhotos.includes(photo.id) && selectedPhotosCount >= maxSelectedPhotos"
                 slot="start"
               ></ion-checkbox>
               <ion-label>
@@ -60,6 +61,10 @@
 
           <ion-note v-else color="medium">
             No photos available. Add photos in the Gallery tab first.
+          </ion-note>
+
+          <ion-note v-if="gallery.photos.length > maxSelectedPhotos" color="warning" class="ion-margin-top ion-display-flex ion-justify-content-center">
+            You can select up to {{ maxSelectedPhotos }} photos for the report
           </ion-note>
         </ion-card-content>
       </ion-card>
@@ -124,6 +129,7 @@ import { useDocx } from '@/composables/useDocx'
 const gallery = useGalleryStore()
 const report = useReportStore()
 const { generateDocx, saveDocument } = useDocx()
+const maxSelectedPhotos = 18
 
 const selectedPhotos = ref<string[]>([])
 const selectAllPhotos = ref(false)
@@ -139,7 +145,7 @@ const canGenerateReport = computed(() => {
 // Watch selectAllPhotos checkbox
 watch(selectAllPhotos, (newValue) => {
   if (newValue) {
-    selectedPhotos.value = gallery.photos.map(p => p.id)
+    selectedPhotos.value = gallery.photos.slice(0, maxSelectedPhotos).map(p => p.id)
   } else {
     selectedPhotos.value = []
   }
@@ -147,7 +153,8 @@ watch(selectAllPhotos, (newValue) => {
 
 // Update selectAllPhotos when individual selections change
 watch(selectedPhotos, (newValue) => {
-  selectAllPhotos.value = newValue.length === gallery.photos.length
+  const selectablePhotos = gallery.photos.slice(0, maxSelectedPhotos)
+  selectAllPhotos.value = selectablePhotos.length > 0 && newValue.length === selectablePhotos.length && selectablePhotos.every(photo => newValue.includes(photo.id))
 }, { deep: true })
 
 function togglePhotoSelection(photoId: string) {

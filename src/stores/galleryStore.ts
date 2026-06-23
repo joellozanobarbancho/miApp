@@ -42,10 +42,6 @@ export const useGalleryStore = defineStore('gallery', {
   getters: {
     photoCount(): number {
       return this.photos.length
-    },
-    
-    canAddMorePhotos(): boolean {
-      return this.photos.length < 18
     }
   },
 
@@ -84,10 +80,6 @@ export const useGalleryStore = defineStore('gallery', {
     async addPhoto(base64Data: string) {
       try {
         console.log('[GalleryStore] addPhoto called, data length:', base64Data.length)
-        
-        if (!this.canAddMorePhotos) {
-          throw new Error('Maximum 18 photos allowed')
-        }
         
         const storagePath = `photo-${createId()}.jpeg`
         console.log('[GalleryStore] Writing file to:', storagePath)
@@ -150,11 +142,6 @@ export const useGalleryStore = defineStore('gallery', {
         const newPhotos: GalleryPhoto[] = []
 
         for (const base64Data of base64DataArray) {
-          if (!this.canAddMorePhotos) {
-            console.warn('[GalleryStore] Maximum photos reached, stopping import')
-            break
-          }
-          
           const storagePath = `photo-${createId()}.jpeg`
           const savedFile = await Filesystem.writeFile({
             path: storagePath,

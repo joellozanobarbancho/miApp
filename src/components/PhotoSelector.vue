@@ -4,38 +4,20 @@
       expand="block" 
       class="ion-margin-bottom"
       @click="takeNewPhoto"
-      :disabled="isLoading || !canAddMore"
+      :disabled="isLoading"
     >
       <ion-icon :icon="cameraOutline" slot="start"></ion-icon>
-      Take Photo ({{ photoCount }}/18)
+      Take Photo
     </ion-button>
 
     <ion-button 
       expand="block" 
-      class="ion-margin-bottom"
-      color="secondary"
       @click="pickFromGallery"
-      :disabled="isLoading || !canAddMore"
-    >
-      <ion-icon :icon="imageOutline" slot="start"></ion-icon>
-      Pick from Gallery
-    </ion-button>
-
-    <ion-button 
-      expand="block" 
-      color="tertiary"
-      @click="pickMultiple"
-      :disabled="isLoading || !canAddMore"
+      :disabled="isLoading"
     >
       <ion-icon :icon="imagesOutline" slot="start"></ion-icon>
-      Pick Multiple (Bulk)
+      Pick from Gallery
     </ion-button>
-
-    <!-- Warning when max photos reached -->
-    <ion-note v-if="!canAddMore" color="warning" class="ion-margin-top ion-display-flex ion-justify-content-center">
-      <ion-icon :icon="warningOutline" slot="start" class="ion-margin-end"></ion-icon>
-      Maximum 18 photos reached
-    </ion-note>
 
     <!-- Loading indicator -->
     <ion-progress-bar 
@@ -51,22 +33,17 @@ import { computed } from 'vue'
 import { 
   IonButton, 
   IonIcon,
-  IonNote,
   IonProgressBar,
   toastController
 } from '@ionic/vue'
 import { 
   cameraOutline, 
-  imageOutline, 
-  imagesOutline,
-  warningOutline
+  imagesOutline
 } from 'ionicons/icons'
 import { useCamera } from '@/composables/useCamera'
 
 interface Props {
-  photoCount?: number
   isLoading?: boolean
-  maxPhotos?: number
 }
 
 interface Emits {
@@ -75,16 +52,12 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  photoCount: 0,
   isLoading: false,
-  maxPhotos: 18
 })
 
 const emit = defineEmits<Emits>()
 
-const { takePhoto, pickPhoto, pickMultiplePhotos } = useCamera()
-
-const canAddMore = computed(() => props.photoCount < props.maxPhotos)
+const { takePhoto, pickMultiplePhotos } = useCamera()
 
 async function takeNewPhoto() {
   try {
@@ -112,23 +85,6 @@ async function takeNewPhoto() {
 }
 
 async function pickFromGallery() {
-  try {
-    const base64Photo = await pickPhoto()
-    emit('photosTaken', [base64Photo])
-    
-    const toast = await toastController.create({
-      message: 'Photo selected',
-      duration: 1500,
-      position: 'bottom'
-    })
-    await toast.present()
-  } catch (err) {
-    console.error('[PhotoSelector] Error picking photo:', err)
-    emit('error', err instanceof Error ? err : new Error('Failed to pick photo'))
-  }
-}
-
-async function pickMultiple() {
   try {
     const photos = await pickMultiplePhotos()
     
@@ -162,11 +118,5 @@ async function pickMultiple() {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-ion-note {
-  border-radius: 4px;
-  padding: 8px;
-  background: rgba(255, 193, 7, 0.1);
 }
 </style>
