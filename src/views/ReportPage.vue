@@ -90,6 +90,18 @@
         </ion-card-content>
       </ion-card>
 
+      <ion-card v-if="report.mapImage" class="section-card">
+        <ion-card-header>
+          <ion-card-title>
+            <ion-icon :icon="imagesOutline" slot="start"></ion-icon>
+            Location preview
+          </ion-card-title>
+        </ion-card-header>
+        <ion-card-content>
+          <MapPreview :src="report.mapImage" />
+        </ion-card-content>
+      </ion-card>
+
       <ion-card v-if="report.slots.length > 0" class="section-card summary-card">
         <ion-card-content>
           <div>
@@ -238,10 +250,8 @@ function normalizeFileName() {
   editableFileName.value = trimmed.length > 0 ? trimmed : stripExtension(generatedFileName.value)
 }
 
-// Keyed by the detected slot.id (varies per template), not by a fixed key
 const slotSelections = reactive<Record<string, ReportSlotSelection>>({})
 
-// If a new template is uploaded, the previous template's selections no longer apply
 watch(
   () => report.template?.id,
   () => {
@@ -324,12 +334,25 @@ async function chooseGalleryPhoto(photo: GalleryPhoto) {
 
 async function useLocationForSlot(slotId: string) {
   try {
-    const { dataUrl, fileName } = await generateLocationMap()
+    const { Geolocation } = await import('@capacitor/geolocation')
+    const pos = await Geolocation.getCurrentPosition()
+
+    const lat = pos.coords.latitude
+    const lng = pos.coords.longitude
+
+    report.setLocation(lat, lng)
+
+    await report.loadMap()
+
+    if (!report.mapImage) {
+      throw new Error('Unable to generate map image')
+    }
+
     slotSelections[slotId] = {
       slotId,
-      fileName,
+      fileName: `location-${Date.now()}.png`,
       mimeType: 'image/png',
-      dataUrl,
+      dataUrl: report.mapImage,
       source: 'auto-location'
     }
   } catch (err) {

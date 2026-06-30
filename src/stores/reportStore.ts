@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { Preferences } from '@capacitor/preferences'
 import { useTemplateScanner, type TemplateSlot } from '@/composables/useTemplateScanner'
+import { useMap } from '@/composables/useMap'   // ⬅️ NUEVO
 
 export type ReportTemplate = {
   id: string
@@ -61,7 +62,14 @@ export const useReportStore = defineStore('report', {
     template: null as ReportTemplate | null,
     slots: [] as TemplateSlot[],
     isScanning: false,
-    isGenerating: false
+    isGenerating: false,
+
+    location: {
+      lat: null as number | null,
+      lng: null as number | null
+    },
+
+    mapImage: null as string | null 
   }),
 
   getters: {
@@ -109,7 +117,6 @@ export const useReportStore = defineStore('report', {
             storagePath: templateData.storagePath
           }
 
-          // Re-scan the restored file to rebuild the slot list (not persisted)
           await this.scanCurrentTemplate()
         }
       } catch (err) {
@@ -167,8 +174,6 @@ export const useReportStore = defineStore('report', {
           })
         })
 
-        // Detect the image slots for this specific template right away,
-        // so the UI knows what to ask the user before generating fails on it.
         await this.scanCurrentTemplate()
 
         console.log('[ReportStore] Template saved successfully')
@@ -198,6 +203,19 @@ export const useReportStore = defineStore('report', {
 
     setGenerating(isGenerating: boolean) {
       this.isGenerating = isGenerating
+    },
+
+    // ⬅️ NUEVO
+    setLocation(lat: number, lng: number) {
+      this.location.lat = lat
+      this.location.lng = lng
+    },
+
+    async loadMap() {
+      if (!this.location.lat || !this.location.lng) return
+
+      const { getStaticMap } = useMap()
+      this.mapImage = await getStaticMap(this.location.lat, this.location.lng)
     }
   }
 })

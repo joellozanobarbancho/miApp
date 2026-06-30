@@ -9,6 +9,7 @@ import { IonApp, IonRouterOutlet } from '@ionic/vue';
 import { onMounted } from 'vue';
 import { App } from '@capacitor/app';
 import { useReportStore } from '@/stores/reportStore'
+import MapPreview from '@/components/MapPreview.vue' 
 
 const reportStore = useReportStore()
 
