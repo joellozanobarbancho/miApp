@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { Preferences } from '@capacitor/preferences'
+import { useTemplateScanner, type TemplateSlot } from '@/composables/useTemplateScanner'
 
 export type ReportTemplate = {
   id: string
@@ -17,28 +18,23 @@ function createId() {
 function base64ToFile(base64: string, fileName: string, mimeType: string) {
   const binaryString = atob(base64)
   const bytes = new Uint8Array(binaryString.length)
-
   for (let index = 0; index < binaryString.length; index += 1) {
     bytes[index] = binaryString.charCodeAt(index)
   }
-
   return new File([bytes], fileName, { type: mimeType })
 }
 
 async function blobToBase64(blob: Blob) {
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
-
     reader.onload = () => {
       const result = reader.result
       if (typeof result === 'string') {
         resolve(result.split(',')[1] || result)
         return
       }
-
       reject(new Error('Failed to read stored template'))
     }
-
     reader.onerror = () => reject(reader.error ?? new Error('Failed to read stored template'))
     reader.readAsDataURL(blob)
   })
@@ -47,17 +43,14 @@ async function blobToBase64(blob: Blob) {
 async function readFileAsBase64(file: File) {
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
-
     reader.onload = () => {
       const result = reader.result
       if (typeof result === 'string') {
         resolve(result.split(',')[1] || result)
         return
       }
-
       reject(new Error('Failed to read template file'))
     }
-
     reader.onerror = () => reject(reader.error ?? new Error('Failed to read template file'))
     reader.readAsDataURL(file)
   })
@@ -66,6 +59,8 @@ async function readFileAsBase64(file: File) {
 export const useReportStore = defineStore('report', {
   state: () => ({
     template: null as ReportTemplate | null,
+    slots: [] as TemplateSlot[],
+    isScanning: false,
     isGenerating: false
   }),
 
@@ -73,7 +68,6 @@ export const useReportStore = defineStore('report', {
     hasTemplate(): boolean {
       return this.template !== null
     },
-    
     templateName(): string | null {
       return this.template?.name ?? null
     }
@@ -92,7 +86,6 @@ export const useReportStore = defineStore('report', {
         if (value) {
           const templateData = JSON.parse(value)
           if (!templateData.storagePath) {
-            console.log('[ReportStore] Template metadata found without file path:', templateData.name)
             this.template = templateData
             return
           }
@@ -106,13 +99,8 @@ export const useReportStore = defineStore('report', {
             ? fileResult.data
             : await blobToBase64(fileResult.data)
 
-          const file = base64ToFile(
-            base64Data,
-            templateData.name,
-            templateData.mimeType ?? 'application/octet-stream'
-          )
+          const file = base64ToFile(base64Data, templateData.name, templateData.mimeType ?? 'application/octet-stream')
 
-          console.log('[ReportStore] Template restored from storage:', templateData.name)
           this.template = {
             id: templateData.id,
             name: templateData.name,
@@ -120,10 +108,30 @@ export const useReportStore = defineStore('report', {
             uploadedAt: templateData.uploadedAt,
             storagePath: templateData.storagePath
           }
+
+          // Re-scan the restored file to rebuild the slot list (not persisted)
+          await this.scanCurrentTemplate()
         }
       } catch (err) {
         console.error('[ReportStore] Error loading template:', err)
         this.template = null
+        this.slots = []
+      }
+    },
+
+    async scanCurrentTemplate() {
+      if (!this.template?.file) return
+      this.isScanning = true
+      try {
+        const { scanTemplate } = useTemplateScanner()
+        this.slots = await scanTemplate(this.template.file)
+        console.log('[ReportStore] Detected', this.slots.length, 'image slots in template')
+      } catch (err) {
+        console.error('[ReportStore] Error scanning template:', err)
+        this.slots = []
+        throw err
+      } finally {
+        this.isScanning = false
       }
     },
 
@@ -139,7 +147,7 @@ export const useReportStore = defineStore('report', {
           data: base64Data,
           directory: Directory.Data
         })
-        
+
         this.template = {
           id,
           name: file.name,
@@ -148,7 +156,6 @@ export const useReportStore = defineStore('report', {
           storagePath
         }
 
-        // Save metadata only (File object cannot be serialized)
         await Preferences.set({
           key: 'reportTemplate',
           value: JSON.stringify({
@@ -160,6 +167,10 @@ export const useReportStore = defineStore('report', {
           })
         })
 
+        // Detect the image slots for this specific template right away,
+        // so the UI knows what to ask the user before generating fails on it.
+        await this.scanCurrentTemplate()
+
         console.log('[ReportStore] Template saved successfully')
       } catch (err) {
         console.error('[ReportStore] Error setting template:', err)
@@ -169,8 +180,6 @@ export const useReportStore = defineStore('report', {
 
     async clearTemplate() {
       try {
-        console.log('[ReportStore] Clearing template')
-
         if (this.template?.storagePath) {
           await Filesystem.deleteFile({
             path: this.template.storagePath,
@@ -179,8 +188,8 @@ export const useReportStore = defineStore('report', {
         }
 
         this.template = null
+        this.slots = []
         await Preferences.remove({ key: 'reportTemplate' })
-        console.log('[ReportStore] Template cleared successfully')
       } catch (err) {
         console.error('[ReportStore] Error clearing template:', err)
         throw err

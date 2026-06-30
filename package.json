@@ -25,12 +25,9 @@
     "@capacitor/status-bar": "8.0.2",
     "@ionic/vue": "^8.0.0",
     "@ionic/vue-router": "^8.0.0",
-    "docxtemplater": "^3.69.0",
-    "docxtemplater-image-module-free": "^1.1.1",
     "ionicons": "^7.0.0",
     "jszip": "^3.10.1",
     "pinia": "^3.0.4",
-    "pizzip": "^3.2.0",
     "vue": "^3.3.0",
     "vue-router": "^4.2.0"
   },
