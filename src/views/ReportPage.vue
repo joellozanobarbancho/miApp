@@ -15,12 +15,9 @@
           </ion-card-title>
         </ion-card-header>
         <ion-card-content>
-          <template-uploader
-            :template-name="report.templateName"
-            @template-selected="setTemplate"
-            @template-cleared="clearTemplate"
-            @error="handleError"
-          />
+          <p class="empty-hint">
+            Using the default template: {{ report.templateName ?? 'PLANTILLA 4.xlsx' }}
+          </p>
         </ion-card-content>
       </ion-card>
 
@@ -40,7 +37,7 @@
         </ion-card-header>
         <ion-card-content>
           <p v-if="report.reports.length === 0" class="empty-hint">
-            No reports generated yet. Upload a template and tap "Generate report" to start.
+            No reports generated yet. Open the default template and tap "Generate report" to start.
           </p>
 
           <ion-list v-else class="reports-list">
@@ -153,7 +150,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import {
   IonPage,
   IonHeader,
@@ -182,17 +179,17 @@ import {
   trashOutline,
   playOutline
 } from 'ionicons/icons'
-import TemplateUploader from '@/components/TemplateUploader.vue'
 import ReportWizardModal from '@/components/ReportWizardModal.vue'
 import { useGalleryStore, type GalleryPhoto } from '@/stores/galleryStore'
 import { useReportStore, type SavedReport } from '@/stores/reportStore'
 import { useReportGenerator, type ReportSlotSelection } from '@/composables/useReportGenerator'
+import type { TemplateSlot } from '@/composables/useTemplateScanner'
 import type { SheetValues } from '@/composables/useTemplateWriter'
 import { Capacitor } from '@capacitor/core'
 
 const report = useReportStore()
 const gallery = useGalleryStore()
-const { prepareReportWithFields, downloadReport } = useReportGenerator()
+const { prepareReportWithFields, downloadReport, generateLocationMap } = useReportGenerator()
 
 const isWizardOpen = ref(false)
 const activeSlotId = ref<string | null>(null)
@@ -204,6 +201,31 @@ const generatedFileName = ref('')
 const editableFileName = ref('')
 
 const slotSelections = reactive<Record<string, ReportSlotSelection>>({})
+
+const logoSlotIds = computed(() => {
+  const bySheet = new Map<string, TemplateSlot>()
+
+  for (const slot of report.slots) {
+    const looksLikeLogo = slot.row <= 5 && slot.col <= 5
+    if (!looksLikeLogo) continue
+
+    const current = bySheet.get(slot.sheetName)
+    if (!current) {
+      bySheet.set(slot.sheetName, slot)
+      continue
+    }
+
+    if (slot.row < current.row || (slot.row === current.row && slot.col < current.col)) {
+      bySheet.set(slot.sheetName, slot)
+    }
+  }
+
+  return Array.from(bySheet.values()).map((slot) => slot.id)
+})
+
+const inquadramentoSlotIds = computed(() =>
+  report.slots.filter((slot) => slot.sheetName === 'inquadramento').map((slot) => slot.id)
+)
 
 function stripExtension(name: string) {
   return name.replace(/\.xlsx$/i, '')
@@ -225,6 +247,17 @@ onMounted(async () => {
 function openWizard() {
   for (const key of Object.keys(slotSelections)) delete slotSelections[key]
   isWizardOpen.value = true
+}
+
+function propagateSharedLogo(slotId: string) {
+  if (!logoSlotIds.value.includes(slotId)) return
+
+  const selection = slotSelections[slotId]
+  if (!selection) return
+
+  for (const logoSlotId of logoSlotIds.value) {
+    slotSelections[logoSlotId] = selection
+  }
 }
 
 function selectImage(slotId: string) {
@@ -271,6 +304,8 @@ async function chooseGalleryPhoto(photo: GalleryPhoto) {
       source: 'file'
     }
 
+    propagateSharedLogo(activeSlotId.value)
+
     closeGalleryPicker()
   } catch (err) {
     await handleError(err instanceof Error ? err : new Error('Unable to select the gallery photo'))
@@ -294,41 +329,37 @@ async function useLocationForSlot(slotId: string) {
       dataUrl: report.mapImage,
       source: 'auto-location'
     }
+
+    propagateSharedLogo(slotId)
   } catch (err) {
     await handleError(err instanceof Error ? err : new Error('Unable to get your location'))
   }
 }
 
-async function setTemplate(file: File) {
-  try {
-    await report.setTemplate(file)
-    const toast = await toastController.create({
-      message: `Template uploaded — ${report.slots.length} editable image(s) detected`,
-      duration: 2500,
-      color: 'success',
-      position: 'bottom'
-    })
-    await toast.present()
-  } catch (err) {
-    await handleError(err instanceof Error ? err : new Error('Unable to save the template'))
-  }
-}
-
-async function clearTemplate() {
-  try {
-    await report.clearTemplate()
-  } catch (err) {
-    await handleError(err instanceof Error ? err : new Error('Unable to clear the template'))
-  }
-}
-
 async function handleWizardFinish(valuesBySheet: Record<string, SheetValues>) {
   if (!report.template?.file) {
-    await handleError(new Error('Upload the Excel template first'))
+    await handleError(new Error('Default template not available'))
     return
   }
 
   try {
+    if (inquadramentoSlotIds.value.length > 0) {
+      const hasInquadramentoSelection = inquadramentoSlotIds.value.some((slotId) => slotSelections[slotId])
+      if (!hasInquadramentoSelection) {
+        const locationMap = await generateLocationMap()
+
+        for (const slotId of inquadramentoSlotIds.value) {
+          slotSelections[slotId] = {
+            slotId,
+            fileName: locationMap.fileName,
+            mimeType: 'image/png',
+            dataUrl: locationMap.dataUrl,
+            source: 'auto-location'
+          }
+        }
+      }
+    }
+
     const result = await prepareReportWithFields(
       report.template.file,
       report.slots,

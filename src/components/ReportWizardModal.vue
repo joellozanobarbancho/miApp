@@ -25,28 +25,43 @@
       </ion-card>
 
       <ion-list v-if="currentStep && currentStep.fields.length > 0" class="fields-list">
-        <ion-item v-for="field in currentStep.fields" :key="field.id">
-          <ion-label position="stacked">
-            {{ field.label }}
-            <span v-if="!field.verified" class="unverified-pill">verify cell</span>
-          </ion-label>
+        <template v-for="field in currentStep.fields" :key="field.id">
+          <ion-item v-if="field.type === 'checkbox'">
+            <ion-label>
+              {{ field.label }}
+              <span v-if="!field.verified" class="unverified-pill">verify cell</span>
+            </ion-label>
 
-          <ion-textarea
-            v-if="field.type === 'textarea'"
-            :model-value="getValue(currentStep.sheetName, field.id)"
-            :placeholder="field.placeholder"
-            auto-grow
-            @ionInput="(e: CustomEvent) => setValue(currentStep!.sheetName, field.id, (e.target as HTMLTextAreaElement).value)"
-          ></ion-textarea>
+            <ion-checkbox
+              slot="end"
+              :checked="getValue(currentStep.sheetName, field.id) === 'true'"
+              @ionChange="(e: CustomEvent) => setValue(currentStep!.sheetName, field.id, ((e.target as HTMLIonCheckboxElement).checked ? 'true' : ''))"
+            ></ion-checkbox>
+          </ion-item>
 
-          <ion-input
-            v-else
-            :type="field.type === 'date' ? 'date' : 'text'"
-            :model-value="getValue(currentStep.sheetName, field.id)"
-            :placeholder="field.placeholder"
-            @ionInput="(e: CustomEvent) => setValue(currentStep!.sheetName, field.id, (e.target as HTMLInputElement).value)"
-          ></ion-input>
-        </ion-item>
+          <ion-item v-else>
+            <ion-label position="stacked">
+              {{ field.label }}
+              <span v-if="!field.verified" class="unverified-pill">verify cell</span>
+            </ion-label>
+
+            <ion-textarea
+              v-if="field.type === 'textarea'"
+              :model-value="getValue(currentStep.sheetName, field.id)"
+              :placeholder="field.placeholder"
+              auto-grow
+              @ionInput="(e: CustomEvent) => setValue(currentStep!.sheetName, field.id, (e.target as HTMLTextAreaElement).value)"
+            ></ion-textarea>
+
+            <ion-input
+              v-else
+              :type="field.type === 'date' ? 'date' : 'text'"
+              :model-value="getValue(currentStep.sheetName, field.id)"
+              :placeholder="field.placeholder"
+              @ionInput="(e: CustomEvent) => setValue(currentStep!.sheetName, field.id, (e.target as HTMLInputElement).value)"
+            ></ion-input>
+          </ion-item>
+        </template>
       </ion-list>
 
       <div v-if="currentStepSlots.length > 0" class="slots-section">
@@ -104,6 +119,7 @@ import {
   IonLabel,
   IonInput,
   IonTextarea,
+  IonCheckbox,
   IonCard,
   IonCardContent,
   IonIcon,
@@ -206,7 +222,9 @@ function buildValuesBySheet(): Record<string, SheetValues> {
 
     for (const field of step.fields) {
       const value = draftValues[step.sheetName]?.[field.id]
-      if (value) sheetValues[field.cellRef] = value
+      if (!value) continue
+
+      sheetValues[field.cellRef] = field.type === 'checkbox' ? '■' : value
     }
 
     if (step.headerBlock) {

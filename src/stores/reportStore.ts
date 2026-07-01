@@ -4,6 +4,9 @@ import { Preferences } from '@capacitor/preferences'
 import { useTemplateScanner, type TemplateSlot } from '@/composables/useTemplateScanner'
 import { useMap } from '@/composables/useMap'   // ⬅️ NUEVO
 
+const DEFAULT_TEMPLATE_PATH = '/PLANTILLA%204.xlsx'
+const DEFAULT_TEMPLATE_NAME = 'PLANTILLA 4.xlsx'
+
 export type ReportTemplate = {
   id: string
   name: string
@@ -22,15 +25,6 @@ export type SavedReport = {
 
 function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-}
-
-function base64ToFile(base64: string, fileName: string, mimeType: string) {
-  const binaryString = atob(base64)
-  const bytes = new Uint8Array(binaryString.length)
-  for (let index = 0; index < binaryString.length; index += 1) {
-    bytes[index] = binaryString.charCodeAt(index)
-  }
-  return new File([bytes], fileName, { type: mimeType })
 }
 
 async function blobToBase64(blob: Blob) {
@@ -65,6 +59,18 @@ async function readFileAsBase64(file: File) {
   })
 }
 
+async function loadFileFromUrl(url: string, fileName: string): Promise<File> {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`Unable to load default template from ${url}`)
+  }
+
+  const blob = await response.blob()
+  return new File([blob], fileName, {
+    type: blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  })
+}
+
 export const useReportStore = defineStore('report', {
   state: () => ({
     template: null as ReportTemplate | null,
@@ -93,47 +99,22 @@ export const useReportStore = defineStore('report', {
 
   actions: {
     async loadFromStorage() {
-      return this.loadTemplate()
+      await this.loadDefaultTemplate().catch((err) => {
+        console.warn('[ReportStore] Default template not available:', err)
+      })
     },
 
-    async loadTemplate() {
-      try {
-        console.log('[ReportStore] Loading template from Preferences')
-        const { value } = await Preferences.get({ key: 'reportTemplate' })
+    async loadDefaultTemplate() {
+      const file = await loadFileFromUrl(DEFAULT_TEMPLATE_PATH, DEFAULT_TEMPLATE_NAME)
 
-        if (value) {
-          const templateData = JSON.parse(value)
-          if (!templateData.storagePath) {
-            this.template = templateData
-            return
-          }
-
-          const fileResult = await Filesystem.readFile({
-            path: templateData.storagePath,
-            directory: Directory.Data
-          })
-
-          const base64Data = typeof fileResult.data === 'string'
-            ? fileResult.data
-            : await blobToBase64(fileResult.data)
-
-          const file = base64ToFile(base64Data, templateData.name, templateData.mimeType ?? 'application/octet-stream')
-
-          this.template = {
-            id: templateData.id,
-            name: templateData.name,
-            file,
-            uploadedAt: templateData.uploadedAt,
-            storagePath: templateData.storagePath
-          }
-
-          await this.scanCurrentTemplate()
-        }
-      } catch (err) {
-        console.error('[ReportStore] Error loading template:', err)
-        this.template = null
-        this.slots = []
+      this.template = {
+        id: 'default-template',
+        name: file.name,
+        file,
+        uploadedAt: new Date().toISOString()
       }
+
+      await this.scanCurrentTemplate()
     },
 
     async scanCurrentTemplate() {
