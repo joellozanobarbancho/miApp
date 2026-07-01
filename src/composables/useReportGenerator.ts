@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { Geolocation } from '@capacitor/geolocation'
 import type { TemplateSlot } from './useTemplateScanner'
+import { useTemplateWriter, type SheetValues } from './useTemplateWriter'
 
 export type ReportSlotSelection = {
   slotId: string
@@ -159,6 +160,37 @@ export function useReportGenerator() {
     return { blob, fileName }
   }
 
+  // Como prepareReport, pero además escribe los datos de texto/fecha del
+  // asistente por pasos (valuesBySheet) antes de reempaquetar el .xlsx.
+  async function prepareReportWithFields(
+    templateFile: File,
+    slots: TemplateSlot[],
+    imageSelections: Record<string, ReportSlotSelection>,
+    valuesBySheet: Record<string, SheetValues>,
+    baseFileName?: string
+  ) {
+    const { default: JSZip } = await import('jszip')
+    const zip = await JSZip.loadAsync(await templateFile.arrayBuffer())
+
+    const { applyFieldValues } = useTemplateWriter()
+    await applyFieldValues(zip, valuesBySheet)
+
+    for (const slot of slots) {
+      const selection = imageSelections[slot.id]
+      if (!selection) continue
+
+      const fittedDataUrl = await fitImageToSlot(selection.dataUrl, slot)
+      zip.file(slot.mediaPath, stripDataUrlPrefix(fittedDataUrl), { base64: true })
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const fileName = baseFileName
+      ? `${baseFileName}.xlsx`
+      : `report-${new Date().toISOString().slice(0, 10)}.xlsx`
+
+    return { blob, fileName }
+  }
+
   async function downloadReport(blob: Blob, fileName: string) {
     if (Capacitor.getPlatform() === 'web') {
       triggerBrowserDownload(blob, fileName)
@@ -194,6 +226,7 @@ export function useReportGenerator() {
 
   return {
     prepareReport,
+    prepareReportWithFields,
     downloadReport,
     generateLocationMap
   }
