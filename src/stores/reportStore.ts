@@ -12,6 +12,14 @@ export type ReportTemplate = {
   storagePath?: string
 }
 
+export type SavedReport = {
+  id: string
+  name: string
+  createdAt: string
+  storagePath: string
+  mimeType: string
+}
+
 function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
@@ -69,7 +77,9 @@ export const useReportStore = defineStore('report', {
       lng: null as number | null
     },
 
-    mapImage: null as string | null 
+    mapImage: null as string | null,
+
+    reports: [] as SavedReport[]
   }),
 
   getters: {
@@ -216,6 +226,82 @@ export const useReportStore = defineStore('report', {
 
       const { getStaticMap } = useMap()
       this.mapImage = await getStaticMap(this.location.lat, this.location.lng)
+    },
+
+    // --- Informes generados (persistidos en el dispositivo) ---
+
+    async loadReports() {
+      try {
+        const { value } = await Preferences.get({ key: 'generatedReports' })
+        this.reports = value ? (JSON.parse(value) as SavedReport[]) : []
+      } catch (err) {
+        console.error('[ReportStore] Error loading generated reports:', err)
+        this.reports = []
+      }
+    },
+
+    async persistReportsList() {
+      await Preferences.set({
+        key: 'generatedReports',
+        value: JSON.stringify(this.reports)
+      })
+    },
+
+    async addGeneratedReport(blob: Blob, fileName: string): Promise<SavedReport> {
+      const id = createId()
+      const storagePath = `generated-report-${id}-${fileName}`
+      const base64Data = await blobToBase64(blob)
+
+      await Filesystem.writeFile({
+        path: storagePath,
+        data: base64Data,
+        directory: Directory.Data
+      })
+
+      const saved: SavedReport = {
+        id,
+        name: fileName,
+        createdAt: new Date().toISOString(),
+        storagePath,
+        mimeType: blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      }
+
+      this.reports.unshift(saved)
+      await this.persistReportsList()
+      return saved
+    },
+
+    async getReportBlob(id: string): Promise<Blob> {
+      const report = this.reports.find((r) => r.id === id)
+      if (!report) throw new Error('Report not found')
+
+      const fileResult = await Filesystem.readFile({
+        path: report.storagePath,
+        directory: Directory.Data
+      })
+
+      if (typeof fileResult.data === 'string') {
+        const binaryString = atob(fileResult.data)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i += 1) bytes[i] = binaryString.charCodeAt(i)
+        return new Blob([bytes], { type: report.mimeType })
+      }
+
+      return fileResult.data
+    },
+
+    async deleteReport(id: string) {
+      const report = this.reports.find((r) => r.id === id)
+      if (!report) return
+
+      try {
+        await Filesystem.deleteFile({ path: report.storagePath, directory: Directory.Data })
+      } catch (err) {
+        console.error('[ReportStore] Error deleting report file:', err)
+      }
+
+      this.reports = this.reports.filter((r) => r.id !== id)
+      await this.persistReportsList()
     }
   }
 })
