@@ -1,6 +1,8 @@
 import { Capacitor } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { Geolocation } from '@capacitor/geolocation'
+import { Share } from '@capacitor/share'
+import { useMap } from './useMap'
 import type { TemplateSlot } from './useTemplateScanner'
 
 export type ReportSlotSelection = {
@@ -90,34 +92,6 @@ async function fitImageToSlot(dataUrl: string, slot: TemplateSlot): Promise<stri
   return canvas.toDataURL('image/jpeg', 0.9)
 }
 
-function buildFallbackMapDataUrl(latitude: number, longitude: number) {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
-      <rect width="1200" height="700" fill="#1f3b57" />
-      <circle cx="600" cy="350" r="22" fill="#ffcc66" />
-      <text x="600" y="170" font-family="Arial, sans-serif" font-size="38" text-anchor="middle" fill="#ffffff">Automatic map</text>
-      <text x="600" y="490" font-family="Arial, sans-serif" font-size="28" text-anchor="middle" fill="#ffffff">${latitude.toFixed(6)}, ${longitude.toFixed(6)}</text>
-    </svg>
-  `
-  return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`
-}
-
-async function fetchMapDataUrl(latitude: number, longitude: number) {
-  const mapUrl = new URL('https://staticmap.openstreetmap.de/staticmap.php')
-  mapUrl.searchParams.set('center', `${latitude},${longitude}`)
-  mapUrl.searchParams.set('zoom', '17')
-  mapUrl.searchParams.set('size', '1200x700')
-  mapUrl.searchParams.set('markers', `${latitude},${longitude},red-pushpin`)
-
-  try {
-    const response = await fetch(mapUrl.toString())
-    if (!response.ok) throw new Error('Static map request failed')
-    return await blobToDataUrl(await response.blob())
-  } catch {
-    return buildFallbackMapDataUrl(latitude, longitude)
-  }
-}
-
 function triggerBrowserDownload(blob: Blob, fileName: string) {
   const objectUrl = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -130,10 +104,16 @@ function triggerBrowserDownload(blob: Blob, fileName: string) {
 }
 
 export function useReportGenerator() {
+  const { getStaticMap } = useMap()
+
   // Used by the "Use my location" button on any slot, not just a fixed one.
   async function generateLocationMap(): Promise<{ dataUrl: string; fileName: string }> {
     const position = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 12000 })
-    const dataUrl = await fetchMapDataUrl(position.coords.latitude, position.coords.longitude)
+    const objectUrl = await getStaticMap(position.coords.latitude, position.coords.longitude)
+    const response = await fetch(objectUrl)
+    const blob = await response.blob()
+    URL.revokeObjectURL(objectUrl)
+    const dataUrl = await blobToDataUrl(blob)
     return { dataUrl, fileName: 'geolocation-map.png' }
   }
 
@@ -145,12 +125,74 @@ export function useReportGenerator() {
     const { default: JSZip } = await import('jszip')
     const zip = await JSZip.loadAsync(await templateFile.arrayBuffer())
 
+    // Track which original media paths we've already replaced. If the same
+    // media file is referenced by multiple slots we must create a distinct
+    // copy for each additional slot and update the corresponding
+    // drawing .rels entry to point to the new file. Otherwise replacing the
+    // mediaPath in-place will make multiple placeholders identical.
+    const processed = new Set<string>()
+    let uniqueCounter = 0
+
     for (const slot of slots) {
       const selection = selections[slot.id]
       if (!selection) continue
 
       const fittedDataUrl = await fitImageToSlot(selection.dataUrl, slot)
-      zip.file(slot.mediaPath, stripDataUrlPrefix(fittedDataUrl), { base64: true })
+      const contentBase64 = stripDataUrlPrefix(fittedDataUrl)
+
+      // If we've already processed this mediaPath once, create a unique
+      // copy and update the drawing rel that points to it (if we have rel
+      // info from the scanner). Otherwise write in-place.
+      if (processed.has(slot.mediaPath) && slot.relId && slot.drawingRelsPath && slot.mediaTarget) {
+        uniqueCounter += 1
+
+        const parts = slot.mediaPath.split('/')
+        const origName = parts.pop() || `image-${uniqueCounter}`
+        const dir = parts.join('/')
+        const dotIdx = origName.lastIndexOf('.')
+        const base = dotIdx >= 0 ? origName.slice(0, dotIdx) : origName
+        const ext = dotIdx >= 0 ? origName.slice(dotIdx) : ''
+        const newName = `${base}__copy${uniqueCounter}${ext}`
+        const newMediaPath = dir ? `${dir}/${newName}` : newName
+
+        // Update the rels XML to point to the new Target for this relId
+        try {
+          const relEntry = zip.file(slot.drawingRelsPath)
+          if (relEntry) {
+            const relText = await relEntry.async('text')
+            const parser = new DOMParser()
+            const relDoc = parser.parseFromString(relText, 'application/xml')
+            const relEls = Array.from(relDoc.getElementsByTagName('Relationship'))
+            for (const relEl of relEls) {
+              const id = relEl.getAttribute('Id')
+              if (id === slot.relId) {
+                // preserve the same relative path structure as the original
+                const origTarget = slot.mediaTarget!
+                const origBasename = origTarget.split('/').pop() || origTarget
+                const newTarget = origTarget.replace(origBasename, newName)
+                relEl.setAttribute('Target', newTarget)
+                break
+              }
+            }
+
+            const serializer = new XMLSerializer()
+            const updated = serializer.serializeToString(relDoc)
+            zip.file(slot.drawingRelsPath, updated)
+          }
+        } catch (e) {
+          // Fall back to writing in-place if anything goes wrong
+          zip.file(slot.mediaPath, contentBase64, { base64: true })
+          processed.add(slot.mediaPath)
+          continue
+        }
+
+        // write the new media file
+        zip.file(newMediaPath, contentBase64, { base64: true })
+      } else {
+        zip.file(slot.mediaPath, contentBase64, { base64: true })
+      }
+
+      processed.add(slot.mediaPath)
     }
 
     const blob = await zip.generateAsync({ type: 'blob' })
@@ -192,9 +234,34 @@ export function useReportGenerator() {
     return { path: saved.uri }
   }
 
+  async function editReport(blob: Blob, fileName: string) {
+    if (Capacitor.getPlatform() === 'web') {
+      triggerBrowserDownload(blob, fileName)
+      return { path: fileName }
+    }
+
+    const base64 = await blobToDataUrl(blob)
+    const saved = await Filesystem.writeFile({
+      path: `report-edit/${Date.now()}-${fileName}`,
+      data: stripDataUrlPrefix(base64),
+      directory: Directory.Cache,
+      recursive: true
+    })
+
+    await Share.share({
+      title: 'Edit report',
+      text: 'Open this Excel file in a spreadsheet app to edit it manually.',
+      files: [saved.uri],
+      dialogTitle: 'Edit report'
+    })
+
+    return { path: saved.uri }
+  }
+
   return {
     prepareReport,
     downloadReport,
-    generateLocationMap
+    generateLocationMap,
+    editReport
   }
 }

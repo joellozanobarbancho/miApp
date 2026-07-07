@@ -1,15 +1,62 @@
 import { defineStore } from 'pinia'
-import { Directory, Filesystem } from '@capacitor/filesystem'
 import { Preferences } from '@capacitor/preferences'
 import { useTemplateScanner, type TemplateSlot } from '@/composables/useTemplateScanner'
 import { useMap } from '@/composables/useMap'   // ⬅️ NUEVO
 
+export type TemplateChoice = 'traliccio' | 'palo' | 'rooftop'
+
 export type ReportTemplate = {
   id: string
+  choice: TemplateChoice
   name: string
   file: File
   uploadedAt: string
-  storagePath?: string
+}
+
+type TemplateDefinition = {
+  choice: TemplateChoice
+  label: string
+  fileName: string
+  url: string
+}
+
+const TEMPLATE_LIBRARY: Record<TemplateChoice, TemplateDefinition> = {
+  traliccio: {
+    choice: 'traliccio',
+    label: 'Traliccio',
+    fileName: 'traliccio.xlsx',
+    url: new URL('../plantillas/traliccio.xlsx', import.meta.url).href
+  },
+  palo: {
+    choice: 'palo',
+    label: 'Palo',
+    fileName: 'palo.xlsx',
+    url: new URL('../plantillas/palo.xlsx', import.meta.url).href
+  },
+  rooftop: {
+    choice: 'rooftop',
+    label: 'Rooftop',
+    fileName: 'rooftop.xlsx',
+    url: new URL('../plantillas/rooftop.xlsx', import.meta.url).href
+  }
+}
+
+const DEFAULT_TEMPLATE: TemplateChoice = 'traliccio'
+
+function isTemplateChoice(value: string | null): value is TemplateChoice {
+  return value === 'traliccio' || value === 'palo' || value === 'rooftop'
+}
+
+async function loadPresetTemplate(definition: TemplateDefinition) {
+  const response = await fetch(definition.url)
+  if (!response.ok) {
+    throw new Error(`Unable to load the ${definition.label.toLowerCase()} template`)
+  }
+
+  const blob = await response.blob()
+  return new File([blob], definition.fileName, {
+    type: blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  })
 }
 
 function createId() {
@@ -88,37 +135,11 @@ export const useReportStore = defineStore('report', {
 
     async loadTemplate() {
       try {
-        console.log('[ReportStore] Loading template from Preferences')
-        const { value } = await Preferences.get({ key: 'reportTemplate' })
+        console.log('[ReportStore] Loading template choice from Preferences')
+        const { value } = await Preferences.get({ key: 'reportTemplateChoice' })
+        const choice = isTemplateChoice(value) ? value : DEFAULT_TEMPLATE
 
-        if (value) {
-          const templateData = JSON.parse(value)
-          if (!templateData.storagePath) {
-            this.template = templateData
-            return
-          }
-
-          const fileResult = await Filesystem.readFile({
-            path: templateData.storagePath,
-            directory: Directory.Data
-          })
-
-          const base64Data = typeof fileResult.data === 'string'
-            ? fileResult.data
-            : await blobToBase64(fileResult.data)
-
-          const file = base64ToFile(base64Data, templateData.name, templateData.mimeType ?? 'application/octet-stream')
-
-          this.template = {
-            id: templateData.id,
-            name: templateData.name,
-            file,
-            uploadedAt: templateData.uploadedAt,
-            storagePath: templateData.storagePath
-          }
-
-          await this.scanCurrentTemplate()
-        }
+        await this.setTemplateChoice(choice, false)
       } catch (err) {
         console.error('[ReportStore] Error loading template:', err)
         this.template = null
@@ -142,59 +163,42 @@ export const useReportStore = defineStore('report', {
       }
     },
 
-    async setTemplate(file: File) {
+    async setTemplateChoice(choice: TemplateChoice, persistChoice = true) {
       try {
-        console.log('[ReportStore] Setting template:', file.name)
+        console.log('[ReportStore] Setting template choice:', choice)
+        const definition = TEMPLATE_LIBRARY[choice]
         const id = createId()
-        const storagePath = `report-template-${id}-${file.name}`
-        const base64Data = await readFileAsBase64(file)
-
-        await Filesystem.writeFile({
-          path: storagePath,
-          data: base64Data,
-          directory: Directory.Data
-        })
+        const file = await loadPresetTemplate(definition)
 
         this.template = {
           id,
-          name: file.name,
+          choice,
+          name: definition.label,
           file,
-          uploadedAt: new Date().toISOString(),
-          storagePath
+          uploadedAt: new Date().toISOString()
         }
 
-        await Preferences.set({
-          key: 'reportTemplate',
-          value: JSON.stringify({
-            id: this.template.id,
-            name: this.template.name,
-            uploadedAt: this.template.uploadedAt,
-            storagePath: this.template.storagePath,
-            mimeType: file.type
+        if (persistChoice) {
+          await Preferences.set({
+            key: 'reportTemplateChoice',
+            value: choice
           })
-        })
+        }
 
         await this.scanCurrentTemplate()
 
-        console.log('[ReportStore] Template saved successfully')
+        console.log('[ReportStore] Template loaded successfully')
       } catch (err) {
-        console.error('[ReportStore] Error setting template:', err)
+        console.error('[ReportStore] Error setting template choice:', err)
         throw err
       }
     },
 
     async clearTemplate() {
       try {
-        if (this.template?.storagePath) {
-          await Filesystem.deleteFile({
-            path: this.template.storagePath,
-            directory: Directory.Data
-          })
-        }
-
         this.template = null
         this.slots = []
-        await Preferences.remove({ key: 'reportTemplate' })
+        await Preferences.remove({ key: 'reportTemplateChoice' })
       } catch (err) {
         console.error('[ReportStore] Error clearing template:', err)
         throw err

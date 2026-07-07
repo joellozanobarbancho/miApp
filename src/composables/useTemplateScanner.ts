@@ -10,6 +10,14 @@ export type TemplateSlot = {
   widthEmu: number | null     
   heightEmu: number | null
   thumbnailDataUrl: string    
+  isPlaceholderLike: boolean
+  isLogoSlot: boolean
+  isLocationSlot: boolean
+  // Added so the generator can update drawing rels when the same media file
+  // is reused multiple times in the template.
+  relId?: string | null
+  drawingRelsPath?: string | null
+  mediaTarget?: string | null
 }
 
 const REL_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
@@ -48,6 +56,18 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error('Unable to read image'))
     reader.readAsDataURL(blob)
   })
+}
+
+async function isPlaceholderLikeImage(dataUrl: string): Promise<boolean> {
+  return dataUrl.length > 0
+}
+
+function isLogoSlot(row: number, col: number) {
+  return row <= 2 && col <= 2
+}
+
+function matchesLocationSlot(sheetName: string, originalFileName: string) {
+  return /(inquadr|inquedr|encuadr|location|ubicac|map)/i.test(`${sheetName} ${originalFileName}`)
 }
 
 export function useTemplateScanner() {
@@ -127,7 +147,6 @@ export function useTemplateScanner() {
         const blip = findDescendants(pic, 'blip')[0]
         const embedRId = getRelId(blip ?? null, 'embed')
         if (!embedRId) continue
-
         const mediaTarget = drawingRels.get(embedRId)
         if (!mediaTarget) continue
         const mediaPath = resolvePath(drawingPath, mediaTarget)
@@ -144,6 +163,9 @@ export function useTemplateScanner() {
 
         const blob = await mediaFile.async('blob')
         const thumbnailDataUrl = await blobToDataUrl(blob)
+        const isPlaceholderLike = await isPlaceholderLikeImage(thumbnailDataUrl)
+        const logoSlot = isLogoSlot(row, col)
+        const isLocationSlot = matchesLocationSlot(sheet.name, mediaPath.split('/').pop() ?? mediaPath)
 
         slots.push({
           id: `${sheet.name}__${mediaPath}__${index}`,
@@ -154,7 +176,13 @@ export function useTemplateScanner() {
           row,
           widthEmu,
           heightEmu,
-          thumbnailDataUrl
+          thumbnailDataUrl,
+          isPlaceholderLike,
+          isLogoSlot: logoSlot,
+          isLocationSlot,
+          relId: embedRId,
+          drawingRelsPath,
+          mediaTarget
         })
 
         index += 1

@@ -31,13 +31,60 @@
         </ion-card-content>
       </ion-card>
 
-      <ion-card v-else-if="report.hasTemplate && report.slots.length === 0" class="section-card">
+      <ion-card v-if="report.hasTemplate && !hasEditableSlots" class="section-card">
         <ion-card-content>
-          <p>No editable images were detected in this template. Make sure the .xlsx already contains placeholder pictures in the cells you want to replace.</p>
+          <p>No placeholder-style images were detected in this template. Make sure the .xlsx already contains placeholder pictures in the cells you want to replace.</p>
         </ion-card-content>
       </ion-card>
 
-      <ion-card v-else-if="report.slots.length > 0" class="section-card">
+      <ion-card v-if="logoSlots.length > 0" class="section-card">
+        <ion-card-header>
+          <ion-card-title>
+            <ion-icon :icon="imagesOutline" slot="start"></ion-icon>
+            Logo
+          </ion-card-title>
+        </ion-card-header>
+        <ion-card-content>
+          <div class="section-actions">
+            <ion-button size="small" @click="selectImage('logo')">
+              Select logo
+            </ion-button>
+            <ion-button
+              size="small"
+              fill="outline"
+              color="medium"
+              :disabled="!logoSelection"
+              @click="clearLogoSelection"
+            >
+              Clear
+            </ion-button>
+          </div>
+          <article class="slot-card slot-card--single slot-card--logo-preview">
+            <div class="slot-card__head">
+              <div>
+                <h3>{{ logoPreviewSlot?.sheetName ?? 'Logo' }}</h3>
+                <p>
+                  {{ logoSlots.length }} logo image(s) will update together
+                </p>
+              </div>
+              <span v-if="logoSelection" class="pill">Logo</span>
+            </div>
+
+            <div class="slot-preview">
+              <img
+                :src="logoSelection?.dataUrl ?? logoPreviewSlot?.thumbnailDataUrl ?? ''"
+                :alt="logoPreviewSlot?.originalFileName ?? 'Logo placeholder'"
+              />
+            </div>
+
+            <p class="slot-meta">
+              {{ logoSelection ? 'This logo will be applied to every top-left logo slot' : 'Showing the current template logo' }}
+            </p>
+          </article>
+        </ion-card-content>
+      </ion-card>
+
+      <ion-card v-if="editableSlots.length > 0" class="section-card">
         <ion-card-header>
           <ion-card-title>
             <ion-icon :icon="imagesOutline" slot="start"></ion-icon>
@@ -46,15 +93,13 @@
         </ion-card-header>
         <ion-card-content>
           <div class="slot-grid">
-            <article v-for="slot in report.slots" :key="slot.id" class="slot-card">
+            <article v-for="slot in editableSlots" :key="slot.id" class="slot-card">
               <div class="slot-card__head">
                 <div>
                   <h3>{{ slot.sheetName }}</h3>
                   <p>{{ slot.originalFileName }} · row {{ slot.row + 1 }}, col {{ slot.col + 1 }}</p>
                 </div>
-                <span v-if="slotSelections[slot.id]" class="pill">
-                  {{ slotSelections[slot.id]?.source === 'auto-location' ? 'Location' : 'Selected' }}
-                </span>
+                <span v-if="slotSelections[slot.id]" class="pill">Selected</span>
               </div>
 
               <div class="slot-preview">
@@ -65,15 +110,12 @@
               </div>
 
               <p class="slot-meta">
-                {{ slotSelections[slot.id] ? 'Custom image selected' : 'Showing current template image' }}
+                {{ slotSelections[slot.id] ? 'Custom image selected' : 'Showing the current template image' }}
               </p>
 
               <div class="slot-actions">
-                <ion-button size="small" @click="selectImage(slot.id)">
+                <ion-button size="small" @click="selectImageForSlot(slot.id)">
                   Select from gallery
-                </ion-button>
-                <ion-button size="small" fill="outline" @click="useLocationForSlot(slot.id)">
-                  Use my location
                 </ion-button>
                 <ion-button
                   size="small"
@@ -90,6 +132,55 @@
         </ion-card-content>
       </ion-card>
 
+      <ion-card v-if="locationSlot" class="section-card">
+        <ion-card-header>
+          <ion-card-title>
+            <ion-icon :icon="imagesOutline" slot="start"></ion-icon>
+            Location image
+          </ion-card-title>
+        </ion-card-header>
+        <ion-card-content>
+          <article class="slot-card slot-card--single">
+            <div class="slot-card__head">
+              <div>
+                <h3>{{ locationSlot.sheetName }}</h3>
+                <p>{{ locationSlot.originalFileName }} · row {{ locationSlot.row + 1 }}, col {{ locationSlot.col + 1 }}</p>
+              </div>
+              <span v-if="locationSelection" class="pill">Selected</span>
+            </div>
+
+            <div class="slot-preview">
+              <img
+                :src="locationSelection?.dataUrl ?? locationPreviewUrl"
+                :alt="locationPreviewAlt"
+              />
+            </div>
+
+            <p class="slot-meta">
+              {{ locationSelection ? 'Map selected for the location page' : 'Showing the current template image' }}
+            </p>
+
+            <div class="slot-actions">
+              <ion-button size="small" @click="selectImage('location')">
+                Select from gallery
+              </ion-button>
+              <ion-button size="small" fill="outline" @click="useLocationForLocationSlot">
+                Use my location
+              </ion-button>
+              <ion-button
+                size="small"
+                fill="outline"
+                color="medium"
+                :disabled="!locationSelection"
+                @click="clearLocationSelection"
+              >
+                Clear
+              </ion-button>
+            </div>
+          </article>
+        </ion-card-content>
+      </ion-card>
+
       <ion-card v-if="report.mapImage" class="section-card">
         <ion-card-header>
           <ion-card-title>
@@ -102,15 +193,15 @@
         </ion-card-content>
       </ion-card>
 
-      <ion-card v-if="report.slots.length > 0" class="section-card summary-card">
+      <ion-card v-if="hasEditableSlots" class="section-card summary-card">
         <ion-card-content>
           <div>
-            <strong>{{ selectedSlotsCount }}</strong>
-            <span>configured slots</span>
+            <strong>{{ editableSlotsCount }}</strong>
+            <span>editable images</span>
           </div>
           <div>
-            <strong>{{ report.slots.length }}</strong>
-            <span>detected slots</span>
+            <strong>{{ configuredGroupsCount }}</strong>
+            <span>configured areas</span>
           </div>
         </ion-card-content>
       </ion-card>
@@ -148,6 +239,9 @@
           </ion-item>
 
           <div class="preview-actions">
+            <ion-button expand="block" fill="outline" :disabled="!generatedBlob" @click="editGeneratedReport">
+              Edit report
+            </ion-button>
             <ion-button expand="block" :disabled="!generatedBlob" @click="downloadGeneratedReport">
               Download
             </ion-button>
@@ -232,14 +326,28 @@ import { useReportGenerator, type ReportSlotSelection } from '@/composables/useR
 
 const report = useReportStore()
 const gallery = useGalleryStore()
-const { prepareReport, downloadReport, generateLocationMap } = useReportGenerator()
+const { prepareReport, downloadReport, generateLocationMap, editReport } = useReportGenerator()
 
+const activePickerTarget = ref<'logo' | 'location' | null>(null)
 const activeSlotId = ref<string | null>(null)
 const isPreviewOpen = ref(false)
 const isGalleryPickerOpen = ref(false)
 const generatedBlob = ref<Blob | null>(null)
 const generatedFileName = ref('')
 const editableFileName = ref('')
+const logoSelection = ref<ReportSlotSelection | null>(null)
+const locationSelection = ref<ReportSlotSelection | null>(null)
+const slotSelections = reactive<Record<string, ReportSlotSelection>>({})
+
+const logoSlots = computed(() => report.slots.filter((slot) => slot.isPlaceholderLike && slot.isLogoSlot && !slot.isLocationSlot))
+const logoPreviewSlot = computed(() => logoSlots.value[0] ?? null)
+const editableSlots = computed(() => report.slots.filter((slot) => slot.isPlaceholderLike && !slot.isLocationSlot && !slot.isLogoSlot && /image3/i.test(slot.originalFileName)))
+const locationSlot = computed(() => report.slots.find((slot) => slot.isLocationSlot) ?? null)
+const hasEditableSlots = computed(() => logoSlots.value.length > 0 || editableSlots.value.length > 0 || locationSlot.value !== null)
+const editableSlotsCount = computed(() => logoSlots.value.length + editableSlots.value.length + (locationSlot.value ? 1 : 0))
+const configuredGroupsCount = computed(() => Number(Boolean(logoSelection.value)) + Number(Boolean(locationSelection.value)) + Object.keys(slotSelections).length)
+const locationPreviewUrl = computed(() => locationSlot.value?.thumbnailDataUrl ?? '')
+const locationPreviewAlt = computed(() => locationSlot.value?.originalFileName ?? 'Location placeholder')
 
 function stripExtension(name: string) {
   return name.replace(/\.xlsx$/i, '')
@@ -250,19 +358,19 @@ function normalizeFileName() {
   editableFileName.value = trimmed.length > 0 ? trimmed : stripExtension(generatedFileName.value)
 }
 
-const slotSelections = reactive<Record<string, ReportSlotSelection>>({})
-
 watch(
   () => report.template?.id,
   () => {
+    logoSelection.value = null
+    locationSelection.value = null
     for (const key of Object.keys(slotSelections)) {
       delete slotSelections[key]
     }
+    report.mapImage = null
+    isPreviewOpen.value = false
+    generatedBlob.value = null
+    generatedFileName.value = ''
   }
-)
-
-const selectedSlotsCount = computed(() =>
-  report.slots.reduce((count, slot) => count + (slotSelections[slot.id] ? 1 : 0), 0)
 )
 
 onMounted(async () => {
@@ -272,14 +380,31 @@ onMounted(async () => {
   }
 })
 
-function selectImage(slotId: string) {
+function selectImage(target: 'logo' | 'location') {
+  activePickerTarget.value = target
+  activeSlotId.value = null
+  isGalleryPickerOpen.value = true
+}
+
+function selectImageForSlot(slotId: string) {
+  activePickerTarget.value = null
   activeSlotId.value = slotId
   isGalleryPickerOpen.value = true
 }
 
 function closeGalleryPicker() {
   isGalleryPickerOpen.value = false
+  activePickerTarget.value = null
   activeSlotId.value = null
+}
+
+function clearLogoSelection() {
+  logoSelection.value = null
+}
+
+function clearLocationSelection() {
+  locationSelection.value = null
+  report.mapImage = null
 }
 
 function clearSlot(slotId: string) {
@@ -305,7 +430,7 @@ async function blobToDataUrl(blob: Blob) {
 }
 
 async function chooseGalleryPhoto(photo: GalleryPhoto) {
-  if (!activeSlotId.value) {
+  if (!activePickerTarget.value && !activeSlotId.value) {
     return
   }
 
@@ -318,12 +443,24 @@ async function chooseGalleryPhoto(photo: GalleryPhoto) {
     const blob = await response.blob()
     const dataUrl = await blobToDataUrl(blob)
 
-    slotSelections[activeSlotId.value] = {
-      slotId: activeSlotId.value,
+    const selection: ReportSlotSelection = {
+      slotId: activePickerTarget.value ?? activeSlotId.value ?? 'slot',
       fileName: photo.id,
       mimeType: blob.type || 'image/jpeg',
       dataUrl,
       source: 'file'
+    }
+
+    if (activePickerTarget.value === 'logo') {
+      logoSelection.value = selection
+    } else if (activePickerTarget.value === 'location') {
+      locationSelection.value = selection
+      report.mapImage = dataUrl
+    } else if (activeSlotId.value) {
+      slotSelections[activeSlotId.value] = {
+        ...selection,
+        slotId: activeSlotId.value
+      }
     }
 
     closeGalleryPicker()
@@ -332,29 +469,23 @@ async function chooseGalleryPhoto(photo: GalleryPhoto) {
   }
 }
 
-async function useLocationForSlot(slotId: string) {
+async function useLocationForLocationSlot() {
   try {
-    const { Geolocation } = await import('@capacitor/geolocation')
-    const pos = await Geolocation.getCurrentPosition()
+    const { dataUrl, fileName } = await generateLocationMap()
 
-    const lat = pos.coords.latitude
-    const lng = pos.coords.longitude
-
-    report.setLocation(lat, lng)
-
-    await report.loadMap()
-
-    if (!report.mapImage) {
+    if (!dataUrl) {
       throw new Error('Unable to generate map image')
     }
 
-    slotSelections[slotId] = {
-      slotId,
-      fileName: `location-${Date.now()}.png`,
+    locationSelection.value = {
+      slotId: locationSlot.value?.id ?? 'location',
+      fileName,
       mimeType: 'image/png',
-      dataUrl: report.mapImage,
+      dataUrl,
       source: 'auto-location'
     }
+
+    report.mapImage = dataUrl
   } catch (err) {
     await handleError(err instanceof Error ? err : new Error('Unable to get your location'))
   }
@@ -364,7 +495,7 @@ async function setTemplate(file: File) {
   try {
     await report.setTemplate(file)
     const toast = await toastController.create({
-      message: `Template uploaded — ${report.slots.length} editable image(s) detected`,
+      message: `Template uploaded — ${logoSlots.value.length} editable image(s) detected`,
       duration: 2500,
       color: 'success',
       position: 'bottom'
@@ -392,14 +523,42 @@ async function generateReport() {
     return
   }
 
-  if (report.slots.length === 0) {
+  if (!hasEditableSlots.value) {
     await handleError(new Error('No editable images were detected in this template'))
     return
   }
 
   try {
     report.setGenerating(true)
-    const result = await prepareReport(report.template.file, report.slots, slotSelections)
+    const selections: Record<string, ReportSlotSelection> = {}
+
+    if (logoSelection.value) {
+      for (const slot of logoSlots.value) {
+        selections[slot.id] = {
+          ...logoSelection.value,
+          slotId: slot.id
+        }
+      }
+    }
+
+    if (locationSelection.value && locationSlot.value) {
+      selections[locationSlot.value.id] = {
+        ...locationSelection.value,
+        slotId: locationSlot.value.id
+      }
+    }
+
+    for (const slot of editableSlots.value) {
+      const selection = slotSelections[slot.id]
+      if (selection) {
+        selections[slot.id] = {
+          ...selection,
+          slotId: slot.id
+        }
+      }
+    }
+
+    const result = await prepareReport(report.template.file, report.slots, selections)
     generatedBlob.value = result.blob
     generatedFileName.value = result.fileName
     editableFileName.value = stripExtension(result.fileName)
@@ -440,6 +599,28 @@ async function downloadGeneratedReport() {
     await toast.present()
   } catch (err) {
     await handleError(err instanceof Error ? err : new Error('Unable to download the report'))
+  }
+}
+
+async function editGeneratedReport() {
+  if (!generatedBlob.value) {
+    return
+  }
+
+  normalizeFileName()
+  const finalFileName = `${editableFileName.value}.xlsx`
+
+  try {
+    const { path } = await editReport(generatedBlob.value, finalFileName)
+    const toast = await toastController.create({
+      message: Capacitor.getPlatform() === 'web' ? 'Report downloaded for editing' : `Open ${path} in a spreadsheet app`,
+      duration: 2500,
+      color: 'success',
+      position: 'bottom'
+    })
+    await toast.present()
+  } catch (err) {
+    await handleError(err instanceof Error ? err : new Error('Unable to open the report for editing'))
   }
 }
 
