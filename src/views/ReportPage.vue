@@ -15,12 +15,30 @@
           </ion-card-title>
         </ion-card-header>
         <ion-card-content>
-          <template-uploader
-            :template-name="report.templateName"
-            @template-selected="setTemplate"
-            @template-cleared="clearTemplate"
-            @error="handleError"
-          />
+<ion-card class="section-card">
+  <ion-card-header>
+    <ion-card-title>
+      <ion-icon :icon="documentOutline" slot="start"></ion-icon>
+      Excel template
+    </ion-card-title>
+  </ion-card-header>
+
+  <ion-card-content>
+    <ion-item>
+      <ion-label>Choose template</ion-label>
+      <ion-select
+        interface="popover"
+        :value="report.template?.choice"
+        @ionChange="setTemplateChoice($event.detail.value)"
+      >
+        <ion-select-option value="traliccio">Traliccio</ion-select-option>
+        <ion-select-option value="palo">Palo</ion-select-option>
+        <ion-select-option value="rooftop">Rooftop</ion-select-option>
+      </ion-select>
+    </ion-item>
+  </ion-card-content>
+</ion-card>
+
         </ion-card-content>
       </ion-card>
 
@@ -294,6 +312,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Capacitor } from '@capacitor/core'
+import type { TemplateChoice } from '@/stores/reportStore'
+
+function setTemplateChoice(choice: TemplateChoice) {
+  report.setTemplateChoice(choice)
+}
+
 import {
   IonPage,
   IonHeader,
@@ -323,7 +347,10 @@ import TemplateUploader from '@/components/TemplateUploader.vue'
 import { useGalleryStore, type GalleryPhoto } from '@/stores/galleryStore'
 import { useReportStore } from '@/stores/reportStore'
 import { useReportGenerator, type ReportSlotSelection } from '@/composables/useReportGenerator'
+import { getPreciseLocation } from '@/composables/useLocation'
+import { useMap } from '@/composables/useMap'
 
+const { getStaticMap } = useMap()
 const report = useReportStore()
 const gallery = useGalleryStore()
 const { prepareReport, downloadReport, generateLocationMap, editReport } = useReportGenerator()
@@ -414,31 +441,22 @@ function clearSlot(slotId: string) {
 async function blobToDataUrl(blob: Blob) {
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
-
     reader.onload = () => {
       const result = reader.result
-      if (typeof result === 'string') {
-        resolve(result)
-        return
-      }
-      reject(new Error('Unable to read the selected image'))
+      if (typeof result === 'string') resolve(result)
+      else reject(new Error('Unable to read the selected image'))
     }
-
     reader.onerror = () => reject(reader.error ?? new Error('Unable to read the selected image'))
     reader.readAsDataURL(blob)
   })
 }
 
 async function chooseGalleryPhoto(photo: GalleryPhoto) {
-  if (!activePickerTarget.value && !activeSlotId.value) {
-    return
-  }
+  if (!activePickerTarget.value && !activeSlotId.value) return
 
   try {
     const response = await fetch(photo.path)
-    if (!response.ok) {
-      throw new Error('Unable to load the selected gallery photo')
-    }
+    if (!response.ok) throw new Error('Unable to load the selected gallery photo')
 
     const blob = await response.blob()
     const dataUrl = await blobToDataUrl(blob)
@@ -457,10 +475,7 @@ async function chooseGalleryPhoto(photo: GalleryPhoto) {
       locationSelection.value = selection
       report.mapImage = dataUrl
     } else if (activeSlotId.value) {
-      slotSelections[activeSlotId.value] = {
-        ...selection,
-        slotId: activeSlotId.value
-      }
+      slotSelections[activeSlotId.value] = { ...selection, slotId: activeSlotId.value }
     }
 
     closeGalleryPicker()
@@ -471,11 +486,11 @@ async function chooseGalleryPhoto(photo: GalleryPhoto) {
 
 async function useLocationForLocationSlot() {
   try {
-    const { dataUrl, fileName } = await generateLocationMap()
+    const pos = await getPreciseLocation()
+    const dataUrl = await getStaticMap(pos.lat, pos.lng)
+    if (!dataUrl) throw new Error('Unable to generate map image')
 
-    if (!dataUrl) {
-      throw new Error('Unable to generate map image')
-    }
+    const fileName = `location-${Date.now()}.png`
 
     locationSelection.value = {
       slotId: locationSlot.value?.id ?? 'location',
@@ -486,23 +501,24 @@ async function useLocationForLocationSlot() {
     }
 
     report.mapImage = dataUrl
+    report.location = pos
   } catch (err) {
     await handleError(err instanceof Error ? err : new Error('Unable to get your location'))
   }
 }
 
-async function setTemplate(file: File) {
+async function setTemplate(choice: TemplateChoice) {
   try {
-    await report.setTemplate(file)
+    await report.setTemplateChoice(choice)
     const toast = await toastController.create({
-      message: `Template uploaded — ${logoSlots.value.length} editable image(s) detected`,
+      message: `Template loaded — ${report.slots.length} editable image(s) detected`,
       duration: 2500,
       color: 'success',
       position: 'bottom'
     })
     await toast.present()
   } catch (err) {
-    await handleError(err instanceof Error ? err : new Error('Unable to save the template'))
+    await handleError(err instanceof Error ? err : new Error('Unable to load the template'))
   }
 }
 
@@ -534,28 +550,17 @@ async function generateReport() {
 
     if (logoSelection.value) {
       for (const slot of logoSlots.value) {
-        selections[slot.id] = {
-          ...logoSelection.value,
-          slotId: slot.id
-        }
+        selections[slot.id] = { ...logoSelection.value, slotId: slot.id }
       }
     }
 
     if (locationSelection.value && locationSlot.value) {
-      selections[locationSlot.value.id] = {
-        ...locationSelection.value,
-        slotId: locationSlot.value.id
-      }
+      selections[locationSlot.value.id] = { ...locationSelection.value, slotId: locationSlot.value.id }
     }
 
     for (const slot of editableSlots.value) {
       const selection = slotSelections[slot.id]
-      if (selection) {
-        selections[slot.id] = {
-          ...selection,
-          slotId: slot.id
-        }
-      }
+      if (selection) selections[slot.id] = { ...selection, slotId: slot.id }
     }
 
     const result = await prepareReport(report.template.file, report.slots, selections)
@@ -581,9 +586,7 @@ async function handleError(error: Error) {
 }
 
 async function downloadGeneratedReport() {
-  if (!generatedBlob.value) {
-    return
-  }
+  if (!generatedBlob.value) return
 
   normalizeFileName()
   const finalFileName = `${editableFileName.value}.xlsx`
@@ -603,9 +606,7 @@ async function downloadGeneratedReport() {
 }
 
 async function editGeneratedReport() {
-  if (!generatedBlob.value) {
-    return
-  }
+  if (!generatedBlob.value) return
 
   normalizeFileName()
   const finalFileName = `${editableFileName.value}.xlsx`
