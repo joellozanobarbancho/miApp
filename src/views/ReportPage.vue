@@ -187,6 +187,7 @@ import type { TemplateSlot } from '@/composables/useTemplateScanner'
 import type { SheetValues } from '@/composables/useTemplateWriter'
 import { Capacitor } from '@capacitor/core'
 
+const { getStaticMap } = useMap()
 const report = useReportStore()
 const gallery = useGalleryStore()
 const { prepareReportWithFields, downloadReport, generateLocationMap } = useReportGenerator()
@@ -199,6 +200,19 @@ const isSaving = ref(false)
 const generatedBlob = ref<Blob | null>(null)
 const generatedFileName = ref('')
 const editableFileName = ref('')
+const logoSelection = ref<ReportSlotSelection | null>(null)
+const locationSelection = ref<ReportSlotSelection | null>(null)
+const slotSelections = reactive<Record<string, ReportSlotSelection>>({})
+
+const logoSlots = computed(() => report.slots.filter((slot) => slot.isPlaceholderLike && slot.isLogoSlot && !slot.isLocationSlot))
+const logoPreviewSlot = computed(() => logoSlots.value[0] ?? null)
+const editableSlots = computed(() => report.slots.filter((slot) => slot.isPlaceholderLike && !slot.isLocationSlot && !slot.isLogoSlot && /image3/i.test(slot.originalFileName)))
+const locationSlot = computed(() => report.slots.find((slot) => slot.isLocationSlot) ?? null)
+const hasEditableSlots = computed(() => logoSlots.value.length > 0 || editableSlots.value.length > 0 || locationSlot.value !== null)
+const editableSlotsCount = computed(() => logoSlots.value.length + editableSlots.value.length + (locationSlot.value ? 1 : 0))
+const configuredGroupsCount = computed(() => Number(Boolean(logoSelection.value)) + Number(Boolean(locationSelection.value)) + Object.keys(slotSelections).length)
+const locationPreviewUrl = computed(() => locationSlot.value?.thumbnailDataUrl ?? '')
+const locationPreviewAlt = computed(() => locationSlot.value?.originalFileName ?? 'Location placeholder')
 
 const slotSelections = reactive<Record<string, ReportSlotSelection>>({})
 
@@ -267,6 +281,7 @@ function selectImage(slotId: string) {
 
 function closeGalleryPicker() {
   isGalleryPickerOpen.value = false
+  activePickerTarget.value = null
   activeSlotId.value = null
 }
 
@@ -275,11 +290,8 @@ async function blobToDataUrl(blob: Blob) {
     const reader = new FileReader()
     reader.onload = () => {
       const result = reader.result
-      if (typeof result === 'string') {
-        resolve(result)
-        return
-      }
-      reject(new Error('Unable to read the selected image'))
+      if (typeof result === 'string') resolve(result)
+      else reject(new Error('Unable to read the selected image'))
     }
     reader.onerror = () => reject(reader.error ?? new Error('Unable to read the selected image'))
     reader.readAsDataURL(blob)
@@ -296,8 +308,8 @@ async function chooseGalleryPhoto(photo: GalleryPhoto) {
     const blob = await response.blob()
     const dataUrl = await blobToDataUrl(blob)
 
-    slotSelections[activeSlotId.value] = {
-      slotId: activeSlotId.value,
+    const selection: ReportSlotSelection = {
+      slotId: activePickerTarget.value ?? activeSlotId.value ?? 'slot',
       fileName: photo.id,
       mimeType: blob.type || 'image/jpeg',
       dataUrl,
@@ -312,7 +324,7 @@ async function chooseGalleryPhoto(photo: GalleryPhoto) {
   }
 }
 
-async function useLocationForSlot(slotId: string) {
+async function useLocationForLocationSlot() {
   try {
     const { Geolocation } = await import('@capacitor/geolocation')
     const pos = await Geolocation.getCurrentPosition()
@@ -326,7 +338,7 @@ async function useLocationForSlot(slotId: string) {
       slotId,
       fileName: `location-${Date.now()}.png`,
       mimeType: 'image/png',
-      dataUrl: report.mapImage,
+      dataUrl,
       source: 'auto-location'
     }
 
@@ -447,6 +459,26 @@ function formatDate(dateString: string): string {
     })
   } catch {
     return dateString
+  }
+}
+
+async function editGeneratedReport() {
+  if (!generatedBlob.value) return
+
+  normalizeFileName()
+  const finalFileName = `${editableFileName.value}.xlsx`
+
+  try {
+    const { path } = await editReport(generatedBlob.value, finalFileName)
+    const toast = await toastController.create({
+      message: Capacitor.getPlatform() === 'web' ? 'Report downloaded for editing' : `Open ${path} in a spreadsheet app`,
+      duration: 2500,
+      color: 'success',
+      position: 'bottom'
+    })
+    await toast.present()
+  } catch (err) {
+    await handleError(err instanceof Error ? err : new Error('Unable to open the report for editing'))
   }
 }
 
