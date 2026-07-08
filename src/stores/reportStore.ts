@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { Preferences } from '@capacitor/preferences'
 import { useTemplateScanner, type TemplateSlot } from '@/composables/useTemplateScanner'
-import { useMap } from '@/composables/useMap'   // ⬅️ NUEVO
+import { useMap } from '@/composables/useMap'
 
-export type TemplateChoice = 'traliccio' | 'palo' | 'rooftop'
+const DEFAULT_TEMPLATE_PATH = '/PLANTILLA%204.xlsx'
+const DEFAULT_TEMPLATE_NAME = 'PLANTILLA 4.xlsx'
 
 export type ReportTemplate = {
   id: string
@@ -59,17 +60,16 @@ async function loadPresetTemplate(definition: TemplateDefinition) {
   })
 }
 
-function createId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+export type SavedReport = {
+  id: string
+  name: string
+  createdAt: string
+  storagePath: string
+  mimeType: string
 }
 
-function base64ToFile(base64: string, fileName: string, mimeType: string) {
-  const binaryString = atob(base64)
-  const bytes = new Uint8Array(binaryString.length)
-  for (let index = 0; index < binaryString.length; index += 1) {
-    bytes[index] = binaryString.charCodeAt(index)
-  }
-  return new File([bytes], fileName, { type: mimeType })
+function createId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 async function blobToBase64(blob: Blob) {
@@ -104,6 +104,18 @@ async function readFileAsBase64(file: File) {
   })
 }
 
+async function loadFileFromUrl(url: string, fileName: string): Promise<File> {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`Unable to load default template from ${url}`)
+  }
+
+  const blob = await response.blob()
+  return new File([blob], fileName, {
+    type: blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  })
+}
+
 export const useReportStore = defineStore('report', {
   state: () => ({
     template: null as ReportTemplate | null,
@@ -116,7 +128,9 @@ export const useReportStore = defineStore('report', {
       lng: null as number | null
     },
 
-    mapImage: null as string | null 
+    mapImage: null as string | null,
+
+    reports: [] as SavedReport[]
   }),
 
   getters: {
@@ -130,21 +144,22 @@ export const useReportStore = defineStore('report', {
 
   actions: {
     async loadFromStorage() {
-      return this.loadTemplate()
+      await this.loadDefaultTemplate().catch((err) => {
+        console.warn('[ReportStore] Default template not available:', err)
+      })
     },
 
-    async loadTemplate() {
-      try {
-        console.log('[ReportStore] Loading template choice from Preferences')
-        const { value } = await Preferences.get({ key: 'reportTemplateChoice' })
-        const choice = isTemplateChoice(value) ? value : DEFAULT_TEMPLATE
+    async loadDefaultTemplate() {
+      const file = await loadFileFromUrl(DEFAULT_TEMPLATE_PATH, DEFAULT_TEMPLATE_NAME)
 
-        await this.setTemplateChoice(choice, false)
-      } catch (err) {
-        console.error('[ReportStore] Error loading template:', err)
-        this.template = null
-        this.slots = []
+      this.template = {
+        id: 'default-template',
+        name: file.name,
+        file,
+        uploadedAt: new Date().toISOString()
       }
+
+      await this.scanCurrentTemplate()
     },
 
     async scanCurrentTemplate() {
@@ -220,6 +235,82 @@ export const useReportStore = defineStore('report', {
 
       const { getStaticMap } = useMap()
       this.mapImage = await getStaticMap(this.location.lat, this.location.lng)
+    },
+
+    // --- Informes generados (persistidos en el dispositivo) ---
+
+    async loadReports() {
+      try {
+        const { value } = await Preferences.get({ key: 'generatedReports' })
+        this.reports = value ? (JSON.parse(value) as SavedReport[]) : []
+      } catch (err) {
+        console.error('[ReportStore] Error loading generated reports:', err)
+        this.reports = []
+      }
+    },
+
+    async persistReportsList() {
+      await Preferences.set({
+        key: 'generatedReports',
+        value: JSON.stringify(this.reports)
+      })
+    },
+
+    async addGeneratedReport(blob: Blob, fileName: string): Promise<SavedReport> {
+      const id = createId()
+      const storagePath = `generated-report-${id}-${fileName}`
+      const base64Data = await blobToBase64(blob)
+
+      await Filesystem.writeFile({
+        path: storagePath,
+        data: base64Data,
+        directory: Directory.Data
+      })
+
+      const saved: SavedReport = {
+        id,
+        name: fileName,
+        createdAt: new Date().toISOString(),
+        storagePath,
+        mimeType: blob.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      }
+
+      this.reports.unshift(saved)
+      await this.persistReportsList()
+      return saved
+    },
+
+    async getReportBlob(id: string): Promise<Blob> {
+      const report = this.reports.find((r) => r.id === id)
+      if (!report) throw new Error('Report not found')
+
+      const fileResult = await Filesystem.readFile({
+        path: report.storagePath,
+        directory: Directory.Data
+      })
+
+      if (typeof fileResult.data === 'string') {
+        const binaryString = atob(fileResult.data)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i += 1) bytes[i] = binaryString.charCodeAt(i)
+        return new Blob([bytes], { type: report.mimeType })
+      }
+
+      return fileResult.data
+    },
+
+    async deleteReport(id: string) {
+      const report = this.reports.find((r) => r.id === id)
+      if (!report) return
+
+      try {
+        await Filesystem.deleteFile({ path: report.storagePath, directory: Directory.Data })
+      } catch (err) {
+        console.error('[ReportStore] Error deleting report file:', err)
+      }
+
+      this.reports = this.reports.filter((r) => r.id !== id)
+      await this.persistReportsList()
     }
   }
 })
