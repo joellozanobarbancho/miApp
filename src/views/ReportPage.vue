@@ -187,10 +187,9 @@ import type { TemplateSlot } from '@/composables/useTemplateScanner'
 import type { SheetValues } from '@/composables/useTemplateWriter'
 import { Capacitor } from '@capacitor/core'
 
-const { getStaticMap } = useMap()
 const report = useReportStore()
 const gallery = useGalleryStore()
-const { prepareReportWithFields, downloadReport, generateLocationMap } = useReportGenerator()
+const { prepareReportWithFields, downloadReport, generateLocationMap, editReport } = useReportGenerator()
 
 const isWizardOpen = ref(false)
 const activeSlotId = ref<string | null>(null)
@@ -213,8 +212,6 @@ const editableSlotsCount = computed(() => logoSlots.value.length + editableSlots
 const configuredGroupsCount = computed(() => Number(Boolean(logoSelection.value)) + Number(Boolean(locationSelection.value)) + Object.keys(slotSelections).length)
 const locationPreviewUrl = computed(() => locationSlot.value?.thumbnailDataUrl ?? '')
 const locationPreviewAlt = computed(() => locationSlot.value?.originalFileName ?? 'Location placeholder')
-
-const slotSelections = reactive<Record<string, ReportSlotSelection>>({})
 
 const logoSlotIds = computed(() => {
   const bySheet = new Map<string, TemplateSlot>()
@@ -281,7 +278,6 @@ function selectImage(slotId: string) {
 
 function closeGalleryPicker() {
   isGalleryPickerOpen.value = false
-  activePickerTarget.value = null
   activeSlotId.value = null
 }
 
@@ -307,16 +303,18 @@ async function chooseGalleryPhoto(photo: GalleryPhoto) {
 
     const blob = await response.blob()
     const dataUrl = await blobToDataUrl(blob)
+    const slotId = activeSlotId.value
 
     const selection: ReportSlotSelection = {
-      slotId: activePickerTarget.value ?? activeSlotId.value ?? 'slot',
+      slotId,
       fileName: photo.id,
       mimeType: blob.type || 'image/jpeg',
       dataUrl,
       source: 'file'
     }
 
-    propagateSharedLogo(activeSlotId.value)
+    slotSelections[slotId] = selection
+    propagateSharedLogo(slotId)
 
     closeGalleryPicker()
   } catch (err) {
@@ -324,21 +322,15 @@ async function chooseGalleryPhoto(photo: GalleryPhoto) {
   }
 }
 
-async function useLocationForLocationSlot() {
+async function useLocationForSlot(slotId: string) {
   try {
-    const { Geolocation } = await import('@capacitor/geolocation')
-    const pos = await Geolocation.getCurrentPosition()
-
-    report.setLocation(pos.coords.latitude, pos.coords.longitude)
-    await report.loadMap()
-
-    if (!report.mapImage) throw new Error('Unable to generate map image')
+    const locationMap = await generateLocationMap()
 
     slotSelections[slotId] = {
       slotId,
-      fileName: `location-${Date.now()}.png`,
+      fileName: locationMap.fileName,
       mimeType: 'image/png',
-      dataUrl,
+      dataUrl: locationMap.dataUrl,
       source: 'auto-location'
     }
 

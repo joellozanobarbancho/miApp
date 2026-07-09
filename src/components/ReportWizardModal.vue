@@ -14,16 +14,6 @@
       <p class="step-counter">Step {{ currentStepIndex + 1 }} of {{ steps.length }} — {{ currentStep?.sheetName }}</p>
       <p v-if="currentStep?.description" class="step-description">{{ currentStep.description }}</p>
 
-      <ion-card v-if="currentStep?.isAddressStep" class="location-card">
-        <ion-card-content>
-          <ion-button expand="block" fill="outline" :disabled="isLocating" @click="useMyLocation">
-            <ion-spinner v-if="isLocating" name="crescent" slot="start"></ion-spinner>
-            <ion-icon v-else :icon="locateOutline" slot="start"></ion-icon>
-            {{ isLocating ? 'Locating…' : 'Use my location to fill Indirizzo/Comune' }}
-          </ion-button>
-        </ion-card-content>
-      </ion-card>
-
       <ion-list v-if="currentStep && currentStep.fields.length > 0" class="fields-list">
         <template v-for="field in currentStep.fields" :key="field.id">
           <ion-item v-if="field.type === 'checkbox'">

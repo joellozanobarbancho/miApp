@@ -1,10 +1,13 @@
 import { defineStore } from 'pinia'
 import { Preferences } from '@capacitor/preferences'
+import { Directory, Filesystem } from '@capacitor/filesystem'
 import { useTemplateScanner, type TemplateSlot } from '@/composables/useTemplateScanner'
 import { useMap } from '@/composables/useMap'
 
 const DEFAULT_TEMPLATE_PATH = '/PLANTILLA%204.xlsx'
 const DEFAULT_TEMPLATE_NAME = 'PLANTILLA 4.xlsx'
+
+export type TemplateChoice = 'traliccio' | 'palo' | 'rooftop'
 
 export type ReportTemplate = {
   id: string
@@ -154,6 +157,7 @@ export const useReportStore = defineStore('report', {
 
       this.template = {
         id: 'default-template',
+        choice: DEFAULT_TEMPLATE,
         name: file.name,
         file,
         uploadedAt: new Date().toISOString()
