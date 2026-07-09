@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core'
 import { Directory, Filesystem } from '@capacitor/filesystem'
 import { Geolocation } from '@capacitor/geolocation'
 import { Share } from '@capacitor/share'
+import type JSZip from 'jszip'
 import { useMap } from './useMap'
 import type { TemplateSlot } from './useTemplateScanner'
 import { useTemplateWriter, type SheetValues } from './useTemplateWriter'
@@ -118,20 +119,28 @@ export function useReportGenerator() {
     return { dataUrl, fileName: 'geolocation-map.png' }
   }
 
-  async function prepareReport(
-    templateFile: File,
+  // Escribe las imágenes seleccionadas dentro del zip del .xlsx. Si el
+  // mediaPath original de una casilla está compartido por más de una
+  // casilla en la plantilla (aunque alguna de esas casillas no se edite),
+  // NUNCA se escribe in-place sobre ese archivo compartido: se crea una
+  // copia única para cada casilla editada y se actualiza su relación
+  // (.rels) para que apunte a la copia. Así, cualquier casilla que el
+  // usuario deje sin sustituir conserva la imagen original de la
+  // plantilla, en vez de heredar la foto de una casilla vecina que sí se
+  // haya editado.
+  async function writeSlotImages(
+    zip: JSZip,
     slots: TemplateSlot[],
     selections: Record<string, ReportSlotSelection>
   ) {
-    const { default: JSZip } = await import('jszip')
-    const zip = await JSZip.loadAsync(await templateFile.arrayBuffer())
+    // Cuenta cuántas casillas (editadas o no) apuntan a cada mediaPath
+    // original, usando TODAS las casillas de la plantilla, no solo las
+    // que tienen selección.
+    const mediaPathCounts = new Map<string, number>()
+    for (const slot of slots) {
+      mediaPathCounts.set(slot.mediaPath, (mediaPathCounts.get(slot.mediaPath) ?? 0) + 1)
+    }
 
-    // Track which original media paths we've already replaced. If the same
-    // media file is referenced by multiple slots we must create a distinct
-    // copy for each additional slot and update the corresponding
-    // drawing .rels entry to point to the new file. Otherwise replacing the
-    // mediaPath in-place will make multiple placeholders identical.
-    const processed = new Set<string>()
     let uniqueCounter = 0
 
     for (const slot of slots) {
@@ -141,10 +150,12 @@ export function useReportGenerator() {
       const fittedDataUrl = await fitImageToSlot(selection.dataUrl, slot)
       const contentBase64 = stripDataUrlPrefix(fittedDataUrl)
 
-      // If we've already processed this mediaPath once, create a unique
-      // copy and update the drawing rel that points to it (if we have rel
-      // info from the scanner). Otherwise write in-place.
-      if (processed.has(slot.mediaPath) && slot.relId && slot.drawingRelsPath && slot.mediaTarget) {
+      const isSharedMediaPath = (mediaPathCounts.get(slot.mediaPath) ?? 0) > 1
+
+      // Si el archivo original está compartido con otra casilla (esté o
+      // no editada), y tenemos la info de relación necesaria, creamos
+      // siempre una copia única en vez de tocar el archivo compartido.
+      if (isSharedMediaPath && slot.relId && slot.drawingRelsPath && slot.mediaTarget) {
         uniqueCounter += 1
 
         const parts = slot.mediaPath.split('/')
@@ -179,22 +190,43 @@ export function useReportGenerator() {
             const serializer = new XMLSerializer()
             const updated = serializer.serializeToString(relDoc)
             zip.file(slot.drawingRelsPath, updated)
+          } else {
+            // No pudimos leer la relación: no es seguro tocar el archivo
+            // compartido, así que dejamos la casilla sin escribir en vez
+            // de arriesgarnos a corromper una casilla vecina.
+            continue
           }
         } catch (e) {
-          // Fall back to writing in-place if anything goes wrong
-          zip.file(slot.mediaPath, contentBase64, { base64: true })
-          processed.add(slot.mediaPath)
+          // No pudimos actualizar la relación: por seguridad, no tocamos
+          // el archivo compartido (mejor dejar la foto sin aplicar que
+          // corromper una casilla vecina no editada).
           continue
         }
 
         // write the new media file
         zip.file(newMediaPath, contentBase64, { base64: true })
-      } else {
+      } else if (!isSharedMediaPath) {
+        // Este mediaPath es exclusivo de esta casilla: es seguro
+        // escribir in-place.
         zip.file(slot.mediaPath, contentBase64, { base64: true })
+      } else {
+        // Compartido pero sin info de relación suficiente para generar
+        // una copia segura: preferimos no tocarlo antes que arriesgarnos
+        // a sobreescribir la foto de una casilla vecina.
+        continue
       }
-
-      processed.add(slot.mediaPath)
     }
+  }
+
+  async function prepareReport(
+    templateFile: File,
+    slots: TemplateSlot[],
+    selections: Record<string, ReportSlotSelection>
+  ) {
+    const { default: JSZip } = await import('jszip')
+    const zip = await JSZip.loadAsync(await templateFile.arrayBuffer())
+
+    await writeSlotImages(zip, slots, selections)
 
     const blob = await zip.generateAsync({ type: 'blob' })
     const fileName = `report-${new Date().toISOString().slice(0, 10)}.xlsx`
@@ -217,13 +249,7 @@ export function useReportGenerator() {
     const { applyFieldValues } = useTemplateWriter()
     await applyFieldValues(zip, valuesBySheet)
 
-    for (const slot of slots) {
-      const selection = imageSelections[slot.id]
-      if (!selection) continue
-
-      const fittedDataUrl = await fitImageToSlot(selection.dataUrl, slot)
-      zip.file(slot.mediaPath, stripDataUrlPrefix(fittedDataUrl), { base64: true })
-    }
+    await writeSlotImages(zip, slots, imageSelections)
 
     const blob = await zip.generateAsync({ type: 'blob' })
     const fileName = baseFileName
